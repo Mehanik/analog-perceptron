@@ -75,8 +75,10 @@ Q_q5 outp_bk wn_bk c_b NPN_AN
 Q_q6 OUT wp_bk c_b NPN_AN
 
 * PNP current mirror load (differential to single-ended)
-Q_m1_bk outp_bk outp_bk VCC PNP_AN
-Q_m2_bk OUT outp_bk VCC PNP_AN
+Q_m1_bk outp_bk outp_bk m1_e_bk PNP_AN
+R_m1_e_bk m1_e_bk VCC 100
+Q_m2_bk OUT outp_bk m2_e_bk PNP_AN
+R_m2_e_bk m2_e_bk VCC 100
 
 * Transimpedance: convert mirror output current to voltage
 R_trans_bk OUT REF3 1.1k
@@ -209,8 +211,10 @@ X_ch2 VIN2 outp outn W2_EXT err_v VCC VEE w_bias tail_ref ref3 neuron_ch
 * PNP CURRENT MIRROR LOAD (shared by both forward channels)
 * Converts differential current to single-ended output.
 * ==================================================================
-Q_m1 outp outp VCC PNP_AN
-Q_m2 outn outp VCC PNP_AN
+Q_m1 outp outp m1_e PNP_AN
+R_m1_e m1_e VCC 100
+Q_m2 outn outp m2_e PNP_AN
+R_m2_e m2_e VCC 100
 
 * ==================================================================
 * FORWARD OUTPUT STAGE
