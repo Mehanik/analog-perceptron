@@ -1,0 +1,80 @@
+* Forward Path Tests (Tests 1, 2, 3)
+* DC operating point, DC sweep, transient
+
+.include testbench.spice
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 1: DC Operating Point
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 1: DC Operating Point"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter Vin2 DC = 0.3
+alter I_err DC = 0
+op
+echo "--- Key node voltages ---"
+print V(vout) V(w1_node) V(w2_node)
+echo ""
+echo "Weight nodes should be ~0.91 * programmed value (10M/110M divider):"
+echo "  W1 ~ 0.636V, W2 ~ -0.364V"
+echo "Expected V(vout) = W1_eff * 0.5 + W2_eff * 0.3"
+echo "  = 0.636 * 0.5 + (-0.364) * 0.3 = 0.209V"
+
+* =====================================================================
+* Test 2: DC Sweep - Vin1 from -1V to +1V
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 2: DC Sweep Vin1 (-1 to +1)"
+echo "============================================"
+alter Vin2 DC = 0.3
+dc Vin1 -1 1 0.02
+wrdata neuron_dc_sweep.txt V(vout)
+meas DC vout_n1  FIND V(vout) AT=-1
+meas DC vout_0    FIND V(vout) AT=0
+meas DC vout_p02  FIND V(vout) AT=0.02
+meas DC vout_n02  FIND V(vout) AT=-0.02
+meas DC vout_p1   FIND V(vout) AT=1
+echo "V_out at Vin1=-1, -0.02, 0, +0.02, +1:"
+print vout_n1 vout_n02 vout_0 vout_p02 vout_p1
+let slope_local = (vout_p02 - vout_n02) / 0.04
+echo "Small-signal slope near Vin1=0 (expect ~0.636 = W1_eff):"
+print slope_local
+let slope_wide = (vout_p1 - vout_n1) / 2
+echo "Wide-range slope -1..+1 (expect ~0.636, perfectly linear):"
+print slope_wide
+
+* =====================================================================
+* Test 3: Transient - Forward computation with sine inputs
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 3: Transient Forward"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0.8 1k 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0.5 1.7k 0 0 0 ]
+alter I_err DC = 0
+tran 1u 5m UIC
+wrdata neuron_fwd_transient.txt V(vin1) V(vin2) V(vout)
+meas TRAN vout_pk MAX V(vout)
+meas TRAN vout_min MIN V(vout)
+echo "Output swing during forward operation:"
+print vout_pk vout_min
+meas TRAN w1_end FIND V(w1_node) AT=4.9m
+meas TRAN w2_end FIND V(w2_node) AT=4.9m
+echo "Weight stability (should be near initial values):"
+print w1_end w2_end
+
+echo ""
+echo "Forward tests complete."
+
+.endc
+.end

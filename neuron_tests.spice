@@ -36,7 +36,7 @@ echo "Test 1: DC Operating Point"
 echo "============================================"
 alter Vin1 DC = 0.5
 alter Vin2 DC = 0.3
-alter Verr DC = 0
+alter I_err DC = 0
 op
 print V(vout) V(w1_node) V(w2_node)
 
@@ -59,7 +59,7 @@ alter Vin1 DC = 0
 alter @Vin1[sin] = [ 0 0.8 1k 0 0 0 ]
 alter Vin2 DC = 0
 alter @Vin2[sin] = [ 0 0.5 1.7k 0 0 0 ]
-alter Verr DC = 0
+alter I_err DC = 0
 tran 1u 5m UIC
 wrdata neuron_fwd_transient.txt V(vin1) V(vin2) V(vout)
 meas TRAN vout_pk MAX V(vout)
@@ -95,6 +95,7 @@ alter Vin1 DC = 0.5
 alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
 alter Vin2 DC = 0.3
 alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter I_err DC = 0
 alter Verr DC = 0
 alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
 alter I_test DC = 0
@@ -103,7 +104,7 @@ tran 1u 4m UIC
 meas TRAN v_before FIND V(vout) AT=0.5m
 meas TRAN v_after FIND V(vout) AT=2m
 let z_out = (v_after - v_before) / 1m
-echo "z_out (expect ~100):"
+echo "z_out (expect ~277):"
 print z_out
 alter I_test DC = 0
 alter @I_test[pulse] = [ 0 0 0 0 0 0 0 ]
@@ -115,28 +116,28 @@ alter Vin1 DC = 0
 alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
 alter Vin2 DC = 0
 alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
-alter Verr DC = 1.0
-alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+alter I_err DC = 1u
+alter @I_err[pulse] = [ 0 0 0 0 0 0 0 ]
 op
 print I(Vin1) I(Vin2)
-alter Verr DC = 0
+alter I_err DC = 0
 op
-echo "At ERR=0 (expect ~0):"
+echo "At I_err=0 (expect ~0):"
 print I(Vin1) I(Vin2)
 
 echo "============================================"
 echo "Test 7: Gradient Linearity"
 echo "============================================"
-alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
-dc Verr -1 1 0.02
+alter @I_err[pulse] = [ 0 0 0 0 0 0 0 ]
+dc I_err -1.1u 1.1u 0.1u
 wrdata neuron_grad_linearity.txt I(Vin1) I(Vin2)
-meas DC ivin1_n1 FIND I(Vin1) AT=-1
-meas DC ivin1_p1 FIND I(Vin1) AT=1
-let grad_slope1 = (ivin1_p1 - ivin1_n1) / 2
-meas DC ivin2_n1 FIND I(Vin2) AT=-1
-meas DC ivin2_p1 FIND I(Vin2) AT=1
-let grad_slope2 = (ivin2_p1 - ivin2_n1) / 2
-echo "Gradient slopes (expect 6.36e-7, -3.64e-7):"
+meas DC ivin1_n1u FIND I(Vin1) AT=-1u
+meas DC ivin1_p1u FIND I(Vin1) AT=1u
+let grad_slope1 = (ivin1_p1u - ivin1_n1u) / 2e-6
+meas DC ivin2_n1u FIND I(Vin2) AT=-1u
+meas DC ivin2_p1u FIND I(Vin2) AT=1u
+let grad_slope2 = (ivin2_p1u - ivin2_n1u) / 2e-6
+echo "Gradient slopes dI(VIN)/dI_err (expect ~0.64, ~-0.36):"
 print grad_slope1 grad_slope2
 
 echo "============================================"
@@ -146,8 +147,8 @@ alter Vin1 DC = 0.5
 alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
 alter Vin2 DC = 0.3
 alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
-alter Verr DC = 0
-alter @Verr[pulse] = [ 0 1.0 50u 1n 1n 200u 400u ]
+alter I_err DC = 0
+alter @I_err[pulse] = [ 0 1u 50u 1n 1n 200u 400u ]
 tran 1u 100u UIC
 meas TRAN vout_before FIND V(vout) AT=25u
 meas TRAN vout_after FIND V(vout) AT=75u
@@ -162,8 +163,8 @@ alter Vin1 DC = 0
 alter @Vin1[sin] = [ 0 0.8 1k 0 0 0 ]
 alter Vin2 DC = 0
 alter @Vin2[sin] = [ 0 0.5 1.7k 0 0 0 ]
-alter Verr DC = 0
-alter @Verr[pulse] = [ 0 1.0 1m 100u 100u 2m 5m ]
+alter I_err DC = 0
+alter @I_err[pulse] = [ 0 1u 1m 100u 100u 2m 5m ]
 tran 1u 5m UIC
 wrdata neuron_fwd_grad.txt V(vin1) V(vin2) V(vout) I(Vin1) I(Vin2)
 meas TRAN vout9_pk MAX V(vout)
@@ -180,10 +181,10 @@ alter Vin1 DC = 0
 alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
 alter Vin2 DC = 0
 alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
-alter Verr DC = -1.0
-alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+alter I_err DC = -1u
+alter @I_err[pulse] = [ 0 0 0 0 0 0 0 ]
 op
-echo "Symmetric W=+1.0, ERR=-1.0:"
+echo "Symmetric W=+1.0, I_err=-1uA:"
 echo "I(Vin1) and I(Vin2) should be equal:"
 print I(Vin1) I(Vin2)
 alter Vw1_prog DC = 0.7

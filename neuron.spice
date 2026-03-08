@@ -3,23 +3,23 @@
 * Neuron interface:
 *   VIN1, VIN2  — Input terminals. Accept voltage, produce gradient current.
 *   OUT         — Output terminal. Drives V_out = W1*VIN1 + W2*VIN2.
-*                 Low impedance (~100 ohm); voltage stable under load.
-*                 In a chain, current sinking into OUT from downstream
-*                 gradient cells is the error signal for backpropagation.
-*   ERR         — Error signal input (voltage). Drives the backward path.
-*                 In testbench: explicit voltage source.
-*                 In a chain: derived from current sensed at OUT.
+*                 Z_out ~ 277 ohm. Error enters as current at OUT: downstream
+*                 gradient cells sink/source current into this terminal.
+*                 Internal current sensing (V_isense) converts I(OUT) to
+*                 err_v = I(OUT) * 1M ohm, driving the backward path.
 *   W1_EXT, W2_EXT — Weight cap nodes for programming and monitoring.
 *
 * Forward path:  V_out = W1*VIN1 + W2*VIN2
-* Backward path: I(VIN_i) = K * W_i * ERR  (~1 uA/V^2)
+* Backward path: I(VIN_i) = K * W_i * err_v,  where err_v = I(OUT) * 1M ohm
+*                (~1 uA/V^2 per V of err_v)
 *
 * Sign convention:
 *   Positive gradient = positive current sinking from upstream output
 *   into this neuron's input terminal.
-*   Positive ERR + positive W -> positive current into VIN (negative feedback).
+*   Positive error current at OUT + positive W -> positive current into VIN
+*   (negative feedback).
 *
-* VCC=+5V, VEE=-5V, signal range: +/-1V, Z_out ~ 300 ohm
+* VCC=+5V, VEE=-5V, signal range: +/-1V, Z_out ~ 277 ohm
 
 .include models.spice
 
@@ -91,14 +91,16 @@ R_trans_bk OUT REF3 1.1k
 * Ports:
 *   VIN1, VIN2 — Input terminals (voltage in, gradient current out)
 *   OUT        — Output terminal (voltage out, error current in)
+*                Error enters as current at OUT, sensed internally.
+*                err_v = I(OUT) * 1M ohm drives backward path.
 *   VCC, VEE   — Power rails (+5V, -5V)
 *   W1_EXT     — Weight 1 capacitor node
 *   W2_EXT     — Weight 2 capacitor node
-*   ERR        — Error signal voltage input
 *
 * Forward:  V(OUT) = W1 * V(VIN1) + W2 * V(VIN2)
-* Backward: I(VIN_i) = K * W_i * V(ERR),  K ~ 1 uA/V^2
-*           Positive error + positive weight -> positive current into VIN
+* Backward: I(VIN_i) = K * W_i * err_v,  where err_v = I(OUT) * 1M ohm
+*           K ~ 1 uA/V^2. Positive error current + positive weight
+*           -> positive current into VIN (negative feedback).
 ***********************************************************************
 
 ***********************************************************************
@@ -163,17 +165,19 @@ R_grad_inject grad_out VIN 960k
 * Ports:
 *   VIN1, VIN2 — Input terminals (voltage in, gradient current out)
 *   OUT        — Output terminal (voltage out, error current in)
+*                Error enters as current at OUT, sensed internally.
+*                err_v = I(OUT) * 1M ohm drives backward path.
 *   VCC, VEE   — Power rails (+5V, -5V)
 *   W1_EXT     — Weight 1 capacitor node
 *   W2_EXT     — Weight 2 capacitor node
-*   ERR        — Error signal voltage input
 *
 * Forward:  V(OUT) = W1 * V(VIN1) + W2 * V(VIN2)
-* Backward: I(VIN_i) = K * W_i * V(ERR),  K ~ 1 uA/V^2
-*           Positive error + positive weight -> positive current into VIN
+* Backward: I(VIN_i) = K * W_i * err_v,  where err_v = I(OUT) * 1M ohm
+*           K ~ 1 uA/V^2. Positive error current + positive weight
+*           -> positive current into VIN (negative feedback).
 ***********************************************************************
 
-.subckt neuron VIN1 VIN2 OUT VCC VEE W1_EXT W2_EXT ERR
+.subckt neuron VIN1 VIN2 OUT VCC VEE W1_EXT W2_EXT
 
 * ==================================================================
 * SHARED BIAS (forward + backward)
@@ -202,8 +206,8 @@ R_ref3_load ref3 VEE 10k
 * ==================================================================
 * INPUT CHANNELS
 * ==================================================================
-X_ch1 VIN1 outp outn W1_EXT ERR VCC VEE w_bias tail_ref ref3 neuron_ch
-X_ch2 VIN2 outp outn W2_EXT ERR VCC VEE w_bias tail_ref ref3 neuron_ch
+X_ch1 VIN1 outp outn W1_EXT err_v VCC VEE w_bias tail_ref ref3 neuron_ch
+X_ch2 VIN2 outp outn W2_EXT err_v VCC VEE w_bias tail_ref ref3 neuron_ch
 
 * ==================================================================
 * PNP CURRENT MIRROR LOAD (shared by both forward channels)
@@ -215,8 +219,8 @@ Q_m2 outn outp VCC PNP_AN
 * ==================================================================
 * FORWARD OUTPUT STAGE
 * Low-impedance voltage output: R_trans -> EF -> resistive divider
-* level shift -> R_out.
-* Z_out ~ 300 ohm. Voltage stable under gradient current load.
+* level shift -> V_isense (current sense).
+* Z_out ~ 277 ohm. Voltage stable under gradient current load.
 * ==================================================================
 
 * Transimpedance: convert mirror current to voltage
@@ -233,7 +237,9 @@ Q_ef1 VCC outn ef1_e NPN_AN
 R_top ef1_e out_mid 370
 R_bot out_mid VEE 1k
 
-* Output resistor
-R_out out_mid OUT 30
+* Current sensing: V_isense acts as ammeter, H_err converts to voltage
+* err_v = I(V_isense) * 1M ohm — 1uA error current at OUT -> 1V internal error
+V_isense OUT out_mid DC 0
+H_err err_v 0 V_isense 1MEG
 
 .ends neuron

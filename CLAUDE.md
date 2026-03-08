@@ -42,11 +42,10 @@ ngspice -b neuron_tests.spice
 
 ### Neuron Interface
 
-**Subcircuit `neuron`** (ports: VIN1 VIN2 OUT VCC VEE W1_EXT W2_EXT ERR)
+**Subcircuit `neuron`** (ports: VIN1 VIN2 OUT VCC VEE W1_EXT W2_EXT)
 
 - **VIN1, VIN2** (input terminals): Accept input voltages. Output = W1×VIN1 + W2×VIN2. Each input terminal also generates gradient current proportional to `K × W_i × ERR` (~1 μA/V²). Positive gradient is encoded as positive current sinking from the upstream output into the input terminal.
-- **OUT** (output terminal): Drives the forward result as a low-impedance voltage (Z_out ≈ 100Ω). Voltage remains stable regardless of load within limits. In a multi-neuron chain, the current sinking into/out of OUT from downstream gradient cells serves as the error signal for this neuron's backward path.
-- **ERR** (error input): Receives the error signal (voltage) that drives the backward path. In the current single-neuron testbench, ERR is driven by an explicit voltage source. In a chain, this would be derived from the current sensed at OUT.
+- **OUT** (output terminal): Drives the forward result as a low-impedance voltage (Z_out ≈ 277Ω). Also receives error current from downstream neurons. Internally, a zero-volt sense source (V_isense) and CCVS (H_err, 1MΩ transimpedance) convert error current to voltage (err_v) that drives the backward path. 1μA error current at OUT produces 1V internal err_v.
 - **W1_EXT, W2_EXT** (weight nodes): External access to weight capacitors for programming and monitoring.
 
 ### Forward Path (Gilbert Cell Multipliers)
@@ -56,10 +55,12 @@ ngspice -b neuron_tests.spice
 - E-element weight buffers prevent divider from loading weight caps
 - Emitter degeneration: Re=1k, I_tail=2mA (linear to ~1V)
 - PNP current mirror load (diff-to-single-ended)
-- Two-EF output stage: R_trans(1.1k) + EF1 + R_level(1.1k) + current source + EF2 + R_out(80)
-- Gain: slope ~0.617 V/V at W=0.636, Z_out ~100
+- Output stage: R_trans(1.55k) + EF1 + R_top(370) / R_bot(1k) resistive divider + V_isense(0V, current sense)
+- Gain: slope ~0.617 V/V at W=0.636, Z_out ~277Ω
 
 ### Backward Path
+
+Error enters as current at the OUT terminal. Internally, V_isense (zero-volt source between out_mid and OUT) senses this current, and H_err (CCVS, 1MΩ transimpedance) converts it to a voltage (err_v) that drives the gradient cells. 1μA error current → 1V err_v.
 
 Single voltage-output multiplier subcircuit:
 
@@ -69,7 +70,7 @@ Single voltage-output multiplier subcircuit:
   - Caller adds external R_inject (960k) and optional coupling cap
 
 - **DC-coupled use** (gradient cells inside neuron):
-  - `X_grad ... bk_mult` + `R_inject OUT VIN 960k`
+  - `X_grad ... bk_mult` with SIGNAL=err_v + `R_inject OUT VIN 960k`
   - DC offset absorbed by voltage source at VIN
   - Gradient cells share w_bias, tail_ref, and ref3 with forward path
 
@@ -84,9 +85,9 @@ Single voltage-output multiplier subcircuit:
 - `.ic` sets initial cap voltages; `UIC` flag used in transient
 
 ### Sign Convention
-- Gradient current: positive gradient at VIN_i = positive current sinking from upstream output into VIN_i. Magnitude: I = K × W_i × ERR (K ≈ 1 μA/V²).
-- Error signal: positive ERR means output is too low (err = target - actual). Current flowing into OUT from downstream gradient cells is the error signal.
-- Weight update: positive VIN × positive ERR → weight increases (stable negative feedback loop).
+- Gradient current: positive gradient at VIN_i = positive current sinking from upstream output into VIN_i. Magnitude: I = K × W_i × err_v (K ≈ 1 μA/V²).
+- Error signal: error enters as current at the OUT terminal. Positive error = current flowing out of OUT (from out_mid through V_isense to external circuit). This occurs when downstream gradient cells sink current from this neuron's output. V_isense converts this to err_v via 1MΩ CCVS.
+- Weight update: positive VIN × positive error current → weight increases (stable negative feedback loop).
 
 ## ngspice Pitfalls
 

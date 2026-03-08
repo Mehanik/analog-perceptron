@@ -1,0 +1,39 @@
+* Shared Neuron Testbench
+* Included by individual test files
+
+.include neuron.spice
+
+***********************************************************************
+* TESTBENCH
+***********************************************************************
+
+* Power supplies
+VCC vcc 0 DC 5
+VEE vee 0 DC -5
+
+* Weight programming: voltage sources through 10M set DC operating point
+* In DC analysis (cap open): V(w_node) = Vprog * 100M/(10M+100M) ~ 0.91*Vprog
+* In transient with UIC: .ic dominates; 10M provides slow restoring force
+Vw1_prog w1_prog 0 DC 0.7
+Rw1_prog w1_prog w1_node 10MEG
+Vw2_prog w2_prog 0 DC -0.4
+Rw2_prog w2_prog w2_node 10MEG
+
+* Neuron instance
+X1 vin1 vin2 vout vcc vee w1_node w2_node neuron
+
+* Initial conditions for transient
+.ic V(w1_node)=0.7 V(w2_node)=-0.4
+
+* Input sources (reconfigured per test via alter)
+Vin1 vin1 0 DC 0
+Vin2 vin2 0 DC 0.3
+
+* Error input for testbench-level bk_mult cells (not connected to neuron)
+Verr err_in 0 DC 0
+
+* Error current source at output (replaces old ERR voltage port)
+I_err 0 vout DC 0
+
+* Test current source for impedance measurement
+I_test 0 vout DC 0

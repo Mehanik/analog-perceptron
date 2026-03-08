@@ -1,0 +1,37 @@
+* Output Impedance Test (Test 5)
+
+.include testbench.spice
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 5: Output Impedance (transient step method)
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 5: Output Impedance"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter I_err DC = 0
+* Step current from 0 to 1mA at t=1ms
+alter I_test DC = 0
+alter @I_test[pulse] = [ 0 1m 1m 1n 1n 2m 4m ]
+tran 1u 4m UIC
+meas TRAN v_before FIND V(vout) AT=0.5m
+meas TRAN v_after  FIND V(vout) AT=2m
+let z_out = (v_after - v_before) / 1m
+echo "Output impedance (expect ~277 ohm):"
+print z_out
+alter I_test DC = 0
+alter @I_test[pulse] = [ 0 0 0 0 0 0 0 ]
+
+echo ""
+echo "Impedance test complete."
+
+.endc
+.end
