@@ -1,0 +1,139 @@
+* Learning Test — Neuron adapts output to match target voltage
+*
+* Phase 1 (0–1s):    VIN1=+0.5, VIN2=-0.5, OUT connected to 0.5V via 100k
+*                     Behavioral weight update: dW/dt = K * VIN * error
+*                     Weights adjust to reduce error -> V_out converges to 0.5V
+* Phase 2 (1–2s):    Target disconnected. Output & weights should hold steady.
+* Phase 3 (2–3s):    Slowly ramp VIN1 from +0.5 to -0.5
+* Phase 4 (3–4s):    Slowly ramp VIN2 from -0.5 to +0.5
+* Phase 5 (4–5s):    Hold — observe final output
+*
+* Initial weights: W1=0.3, W2=0.3 (symmetric, initial output ~ 0V)
+* Target: 0.5V at OUT
+*
+* Weight update uses ideal behavioral sources implementing the gradient
+* descent rule: I_w = K * VIN * (target - Vout), with K ~ 1 uA/V^2
+* matching the analog bk_mult gradient constant.
+* The real bk_mult cells require pulsed (AC) error signals due to
+* coupling cap DC blocking; this test uses ideal DC-capable updates.
+
+.include neuron.spice
+
+***********************************************************************
+* POWER SUPPLIES
+***********************************************************************
+VCC vcc 0 DC 5
+VEE vee 0 DC -5
+
+***********************************************************************
+* WEIGHT PROGRAMMING (1G resistors — negligible restoring force)
+***********************************************************************
+Vw1_prog w1_prog 0 DC 0.3
+Rw1_prog w1_prog w1_node 1G
+Vw2_prog w2_prog 0 DC 0.3
+Rw2_prog w2_prog w2_node 1G
+
+***********************************************************************
+* NEURON INSTANCE
+***********************************************************************
+X1 vin1 vin2 vout vcc vee w1_node w2_node neuron
+
+* Initial weight cap voltages
+.ic V(w1_node)=0.3 V(w2_node)=0.3
+
+***********************************************************************
+* INPUT SOURCES (PWL for phase transitions)
+***********************************************************************
+Vin1 vin1 0 PWL(0 0.5 2 0.5 3 -0.5 5 -0.5)
+Vin2 vin2 0 PWL(0 -0.5 3 -0.5 4 0.5 5 0.5)
+
+***********************************************************************
+* TARGET CONNECTION (behavioral 100k resistor, switchable)
+***********************************************************************
+V_sw sw 0 PWL(0 1 0.999 1 1.001 0 5 0)
+B_target 0 vout I = V(sw) * (0.5 - V(vout)) / 100k
+
+***********************************************************************
+* IDEAL WEIGHT UPDATE
+* Implements gradient descent: dW_i/dt = (1/C) * K * VIN_i * error
+* K = 1 uA/V^2 (matches bk_mult gradient constant)
+* Current into weight cap: I = K * VIN_i * (target - Vout)
+* Only active when target is connected (sw=1)
+***********************************************************************
+B_dw1 0 w1_node I = V(sw) * 1u * V(vin1) * (0.5 - V(vout))
+B_dw2 0 w2_node I = V(sw) * 1u * V(vin2) * (0.5 - V(vout))
+
+***********************************************************************
+* SIMULATION
+***********************************************************************
+.control
+
+set noaskquit
+
+tran 1m 5 UIC
+
+* Write data for plotting
+wrdata learning_vout.txt V(vout) V(vin1) V(vin2)
+wrdata learning_weights.txt V(w1_node) V(w2_node)
+
+* Measurements
+echo ""
+echo "=========================================="
+echo "Learning Test Results"
+echo "=========================================="
+
+meas TRAN vout_t0     FIND V(vout)    AT=1m
+meas TRAN vout_100ms  FIND V(vout)    AT=0.1
+meas TRAN vout_250ms  FIND V(vout)    AT=0.25
+meas TRAN vout_500ms  FIND V(vout)    AT=0.5
+meas TRAN vout_1s     FIND V(vout)    AT=0.999
+meas TRAN vout_1s_off FIND V(vout)    AT=1.01
+meas TRAN vout_2s     FIND V(vout)    AT=1.999
+meas TRAN vout_3s     FIND V(vout)    AT=3.0
+meas TRAN vout_4s     FIND V(vout)    AT=4.0
+meas TRAN vout_5s     FIND V(vout)    AT=4.999
+
+meas TRAN w1_t0    FIND V(w1_node) AT=1m
+meas TRAN w1_500ms FIND V(w1_node) AT=0.5
+meas TRAN w1_1s    FIND V(w1_node) AT=0.999
+meas TRAN w1_2s    FIND V(w1_node) AT=1.999
+meas TRAN w1_5s    FIND V(w1_node) AT=4.999
+
+meas TRAN w2_t0    FIND V(w2_node) AT=1m
+meas TRAN w2_500ms FIND V(w2_node) AT=0.5
+meas TRAN w2_1s    FIND V(w2_node) AT=0.999
+meas TRAN w2_2s    FIND V(w2_node) AT=1.999
+meas TRAN w2_5s    FIND V(w2_node) AT=4.999
+
+echo ""
+echo "--- Output Voltage ---"
+echo "Initial (1ms):"
+print vout_t0
+echo "After 100ms:"
+print vout_100ms
+echo "After 250ms:"
+print vout_250ms
+echo "After 500ms:"
+print vout_500ms
+echo "Just before disconnect (1s):"
+print vout_1s
+echo "Just after disconnect:"
+print vout_1s_off
+echo "After 1s hold (2s):"
+print vout_2s
+echo "After VIN1 ramp to -0.5 (3s):"
+print vout_3s
+echo "After VIN2 ramp to +0.5 (4s):"
+print vout_4s
+echo "Final (5s):"
+print vout_5s
+
+echo ""
+echo "--- Weights ---"
+echo "W1: t=0 -> 500ms -> 1s -> 2s -> 5s"
+print w1_t0 w1_500ms w1_1s w1_2s w1_5s
+echo "W2: t=0 -> 500ms -> 1s -> 2s -> 5s"
+print w2_t0 w2_500ms w2_1s w2_2s w2_5s
+
+.endc
+.end
