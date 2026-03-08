@@ -1,0 +1,178 @@
+* Bias Sharing Validation Tests
+* Verifies that sharing w_bias and tail_ref between forward and backward
+* paths does not cause coupling or degrade performance.
+
+.include testbench.spice
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 1: Forward Path Unchanged
+* DC sweep VIN1, measure forward slope. Should be ~0.617 V/V.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 1: Forward Path Slope"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+
+dc Vin1 -1 1 0.02
+meas DC vout_p02 FIND V(vout) AT=0.02
+meas DC vout_n02 FIND V(vout) AT=-0.02
+let slope = (vout_p02 - vout_n02) / 0.04
+echo "Forward slope near VIN1=0 (expect ~0.617):"
+print slope
+let slope_err = abs(slope - 0.617) / 0.617
+echo "Relative error from 0.617:"
+print slope_err
+if slope_err < 0.05
+  echo "  PASS - Forward slope within 5% of 0.617"
+else
+  echo "  FAIL - Forward slope out of range"
+end
+
+* =====================================================================
+* Test 2: Gradient Current Unchanged
+* Sweep ERR, extract pure gradient current at VIN1.
+* Should be ~6.5e-7 A per V of ERR.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 2: Gradient Current"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+
+dc Verr -1.1 1.1 0.1
+meas DC ivin1_at0 FIND I(Vin1) AT=0
+meas DC ivin1_at1 FIND I(Vin1) AT=1
+let grad1 = ivin1_at1 - ivin1_at0
+echo "Pure gradient current at VIN1, ERR=+1V (expect ~6.5e-7):"
+print grad1
+if grad1 > 5e-7
+  if grad1 < 8e-7
+    echo "  PASS - Gradient current within expected range"
+  else
+    echo "  FAIL - Gradient current too high"
+  end
+else
+  echo "  FAIL - Gradient current too low"
+end
+
+* =====================================================================
+* Test 3: Forward/Backward Isolation
+* Apply ERR pulse, verify V(vout) doesn't change.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 3: Forward/Backward Isolation"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 1.0 50u 1n 1n 200u 400u ]
+tran 1u 100u UIC
+meas TRAN vout_before FIND V(vout) AT=25u
+meas TRAN vout_after  FIND V(vout) AT=75u
+let vout_diff = abs(vout_after - vout_before)
+echo "V(vout) change when ERR steps 0->1V (expect < 1mV):"
+print vout_diff
+if vout_diff < 1e-3
+  echo "  PASS - Forward output isolated from ERR (< 1mV coupling)"
+else
+  echo "  FAIL - Forward output perturbed by ERR"
+end
+
+* =====================================================================
+* Test 4: Shared Bias Operating Points
+* Check that w_bias and tail_ref are at expected voltages.
+* w_bias ~ 1.87V, tail_ref ~ -4.27V (Vbe above VEE)
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 4: Shared Bias Operating Points"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+op
+echo "Shared w_bias (expect ~1.87V):"
+print V(x1.w_bias)
+echo "Shared tail_ref (expect ~-4.27V):"
+print V(x1.tail_ref)
+echo "Forward ref3:"
+print V(x1.fwd_ref3)
+echo "Backward ref3:"
+print V(x1.bk_ref3)
+
+let wb = V(x1.w_bias)
+let tr = V(x1.tail_ref)
+* w_bias should be ~1.87V (EF output of 4.7k/15k divider from +5/-5)
+if wb > 1.5
+  if wb < 2.2
+    echo "  w_bias PASS"
+  else
+    echo "  w_bias FAIL - too high"
+  end
+else
+  echo "  w_bias FAIL - too low"
+end
+* tail_ref should be ~-4.27V (Vbe above VEE=-5V)
+if tr > -4.5
+  if tr < -4.0
+    echo "  tail_ref PASS"
+  else
+    echo "  tail_ref FAIL - too high"
+  end
+else
+  echo "  tail_ref FAIL - too low"
+end
+
+* =====================================================================
+* Test 5: Tail Reference Load Test
+* With all 4 tail mirrors active (2 fwd + 2 bk), tail_ref should
+* not shift significantly. Compare with expected value.
+* The diode-connected ref has ~13 ohm output impedance.
+* 4 base currents (~40uA total) cause only ~0.5mV shift.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 5: Tail Reference Load Test"
+echo "============================================"
+
+* Already have op from test 4
+let tail_ref_val = V(x1.tail_ref)
+echo "tail_ref with all 4 mirrors active:"
+print tail_ref_val
+* Expected: (5 - Vbe) / 4.65k defines current, Vbe ~ 0.73V
+* tail_ref = VEE + Vbe = -5 + 0.73 = -4.27V
+* With 4 mirrors pulling extra base current, shift ~ 0.5mV
+let tail_err = abs(tail_ref_val - (-4.27))
+echo "Deviation from expected -4.27V:"
+print tail_err
+if tail_err < 0.1
+  echo "  PASS - tail_ref stable under 4-mirror load"
+else
+  echo "  FAIL - tail_ref shifted beyond tolerance"
+end
+
+echo ""
+echo "Bias sharing validation complete."
+
+.endc
+.end

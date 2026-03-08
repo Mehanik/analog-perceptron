@@ -19,6 +19,7 @@ Analog neural network implemented as an ngspice circuit. A single neuron compute
 - `neuron_tests.spice` — All 10 tests in one file (gradient tests less accurate due to VIN loading from weight update cells)
 - `test_bk_mult.spice` — Standalone bk_mult characterization
 - `test_bk_opt.spice` — Validates bk_mult/bk_mult_ac optimization (EF+divider removal)
+- `test_bias_sharing.spice` — Validates shared w_bias/tail_ref between forward and backward paths
 - `gilbert_test.spice` — Standalone forward Gilbert cell test
 - `bk_test.spice` — Legacy backward cell test (uses old bk_gilbert subcircuit)
 
@@ -65,7 +66,8 @@ Two types of backward multiplier subcircuits:
   - NPN Gilbert cell + PNP mirror + R_trans(1.1k) + R_inject(960k)
   - Mirror output drives R_inject directly (960k negligible load vs R_trans)
   - DC offset at outn_bk absorbed by voltage source at INJECT
-  - Gradient cells inside neuron use separate bias (prevents forward coupling)
+  - Gradient cells share w_bias and tail_ref with forward path (safe: pure DC refs)
+  - Separate ref3 prevents signal coupling through R_trans
 
 - **`bk_mult_ac`** (transient-only): for weight update cells where TARGET is a capacitor
   - Same as bk_mult but with 1uF coupling cap before R_inject(960k)
