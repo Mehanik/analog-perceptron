@@ -199,7 +199,7 @@ Q_tail_ref tail_ref tail_ref VEE NPN_AN
 R_ref3_top VCC ref3_raw 2.6k
 R_ref3_bot ref3_raw VEE 13k
 Q_ref3_buf VCC ref3_raw ref3 NPN_AN
-R_ref3_load ref3 VEE 10k
+R_ref3_load ref3 VEE 3.3k
 
 * ==================================================================
 * INPUT CHANNELS
