@@ -1,0 +1,88 @@
+* Standalone bk_mult test
+* Sweeps GAIN and SIGNAL to verify multiplication K factor
+
+.include neuron.spice
+
+VCC vcc 0 DC 5
+VEE vee 0 DC -5
+
+* Bias infrastructure (same as neuron forward)
+R_bias_top vcc bias_raw 4.7k
+R_bias_bot bias_raw vee 15k
+Q_bias_buf vcc bias_raw w_bias NPN_AN
+R_bias_load w_bias vee 20k
+
+R_tail_ref vcc tail_ref_c 4.65k
+Q_tail_ref tail_ref_c tail_ref_c vee NPN_AN
+
+R_ref3_top vcc ref3_raw 2.6k
+R_ref3_bot ref3_raw vee 13k
+Q_ref3_buf vcc ref3_raw ref3 NPN_AN
+R_ref3_load ref3 vee 10k
+
+Vina ina 0 DC 0.5
+Vinb inb 0 DC 0
+
+* Inject node: voltage source to measure output current
+Vtarget target 0 DC 0
+
+* bk_mult: GAIN=ina, SIGNAL=inb, INJECT=target
+X1 ina inb target vcc vee w_bias tail_ref_c ref3 bk_mult
+
+.control
+set noaskquit
+
+echo "============================================"
+echo "bk_mult Operating Point (GAIN=0.5, SIGNAL=0)"
+echo "============================================"
+op
+echo "bk_out (should be ~0V):"
+print V(x1.bk_out)
+echo "I(Vtarget) at quiescent:"
+print I(Vtarget)
+
+echo ""
+echo "============================================"
+echo "Sweep SIGNAL at GAIN=+0.5"
+echo "============================================"
+alter Vina DC = 0.5
+dc Vinb -0.5 0.5 0.02
+meas DC i_n05a FIND I(Vtarget) AT=-0.48
+meas DC i_p05a FIND I(Vtarget) AT=0.48
+let slope_p05 = (i_p05a - i_n05a) / 0.96
+echo "dI/dSIGNAL at GAIN=+0.5:"
+print slope_p05
+
+echo ""
+echo "============================================"
+echo "Sweep SIGNAL at GAIN=-0.3"
+echo "============================================"
+alter Vina DC = -0.3
+dc Vinb -0.5 0.5 0.02
+meas DC i_n05b FIND I(Vtarget) AT=-0.48
+meas DC i_p05b FIND I(Vtarget) AT=0.48
+let slope_n03 = (i_p05b - i_n05b) / 0.96
+echo "dI/dSIGNAL at GAIN=-0.3:"
+print slope_n03
+
+let ratio = abs(slope_p05 / slope_n03)
+echo "Ratio |slope(0.5)/slope(-0.3)| (expect 1.67):"
+print ratio
+
+echo ""
+echo "============================================"
+echo "Sweep SIGNAL at GAIN=0"
+echo "============================================"
+alter Vina DC = 0
+dc Vinb -0.5 0.5 0.02
+meas DC i_n05c FIND I(Vtarget) AT=-0.48
+meas DC i_p05c FIND I(Vtarget) AT=0.48
+let slope_0 = (i_p05c - i_n05c) / 0.96
+echo "dI/dSIGNAL at GAIN=0 (expect ~0):"
+print slope_0
+
+echo ""
+echo "Done."
+
+.endc
+.end

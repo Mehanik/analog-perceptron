@@ -1,0 +1,95 @@
+* Gradient Tests (Tests 6, 7)
+* Chain rule verification and gradient linearity
+* Gradient sign convention: positive gradient = positive current into VIN
+* (sinking from upstream output terminal to this input terminal)
+
+.include testbench.spice
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 6: Chain Rule — Gradient Current Extraction
+* Uses DC sweep of ERR to separate gradient from divider baseline.
+* VIN=0 prevents bk_mult from shifting weight nodes.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 6: Chain Rule (Gradient Currents)"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+
+* Sweep ERR beyond -1..+1 so AT=-1,0,+1 are interior points
+dc Verr -1.1 1.1 0.1
+meas DC ivin1_at0 FIND I(Vin1) AT=0
+meas DC ivin1_at1 FIND I(Vin1) AT=1
+meas DC ivin1_atn1 FIND I(Vin1) AT=-1
+meas DC ivin2_at0 FIND I(Vin2) AT=0
+meas DC ivin2_at1 FIND I(Vin2) AT=1
+meas DC ivin2_atn1 FIND I(Vin2) AT=-1
+
+echo ""
+echo "--- Baseline I(VIN) at ERR=0 (divider loading only) ---"
+print ivin1_at0 ivin2_at0
+
+* Pure gradient current = I(ERR=X) - I(ERR=0)
+let grad1_pos = ivin1_at1 - ivin1_at0
+let grad1_neg = ivin1_atn1 - ivin1_at0
+let grad2_pos = ivin2_at1 - ivin2_at0
+let grad2_neg = ivin2_atn1 - ivin2_at0
+
+echo ""
+echo "--- Pure gradient current (baseline subtracted) ---"
+echo "ERR=+1V: (expect grad1 ~ +6.4e-7, grad2 ~ -3.8e-7)"
+print grad1_pos grad2_pos
+echo "ERR=-1V: (expect grad1 ~ -6.4e-7, grad2 ~ +3.8e-7)"
+print grad1_neg grad2_neg
+
+echo ""
+echo "--- Sign verification ---"
+echo "Positive ERR * positive W1 -> positive current INTO VIN1:"
+echo "  grad1_pos should be > 0:"
+print grad1_pos
+echo "Positive ERR * negative W2 -> negative current INTO VIN2:"
+echo "  grad2_pos should be < 0:"
+print grad2_pos
+echo "Negative ERR * positive W1 -> negative current INTO VIN1:"
+echo "  grad1_neg should be < 0:"
+print grad1_neg
+echo "Negative ERR * negative W2 -> positive current INTO VIN2:"
+echo "  grad2_neg should be > 0:"
+print grad2_neg
+
+echo ""
+echo "--- Gradient ratio ---"
+let ratio_pos = grad1_pos / grad2_pos
+echo "grad1/grad2 at ERR=+1V (expect W1_eff/W2_eff = -1.75):"
+print ratio_pos
+
+* =====================================================================
+* Test 7: Gradient Linearity (DC Sweep ERR)
+* Slope of I(VIN) vs ERR should equal K * W_eff
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 7: Gradient Linearity (ERR sweep)"
+echo "============================================"
+
+* Reuse the sweep data from test 6
+let grad_slope1 = (ivin1_at1 - ivin1_atn1) / 2
+echo "Gradient slope dI(Vin1)/dERR (expect K * W1_eff ~ 6.4e-7):"
+print grad_slope1
+let grad_slope2 = (ivin2_at1 - ivin2_atn1) / 2
+echo "Gradient slope dI(Vin2)/dERR (expect K * W2_eff ~ -3.6e-7):"
+print grad_slope2
+
+echo ""
+echo "Gradient tests complete."
+
+.endc
+.end

@@ -1,0 +1,87 @@
+* Backward Path Tests (Tests 4)
+* Weight update via bk_mult_ac cells at testbench level
+* AC coupling blocks DC offset; .ic pre-charges coupling caps
+
+.include testbench.spice
+
+* Backward weight update cells — own bias infrastructure
+R_bk_tb_bias_top vcc bk_tb_bias_raw 4.7k
+R_bk_tb_bias_bot bk_tb_bias_raw vee 15k
+Q_bk_tb_bias_buf vcc bk_tb_bias_raw w_bias_bk_tb NPN_AN
+R_bk_tb_bias_load w_bias_bk_tb vee 20k
+
+R_bk_tb_tail_ref vcc bk_tb_tail_ref_c 4.65k
+Q_bk_tb_tail_ref bk_tb_tail_ref_c bk_tb_tail_ref_c vee NPN_AN
+
+R_bk_tb_ref3_top vcc bk_tb_ref3_raw 2.6k
+R_bk_tb_ref3_bot bk_tb_ref3_raw vee 13k
+Q_bk_tb_ref3_buf vcc bk_tb_ref3_raw bk_tb_ref3 NPN_AN
+R_bk_tb_ref3_load bk_tb_ref3 vee 10k
+
+* Weight update cells using AC-coupled variant
+X_bk1 vin1 err_in w1_node vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult_ac
+X_bk2 vin2 err_in w2_node vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult_ac
+
+* Pre-charge internal coupling cap nodes to match INJECT initial values
+* This ensures C_couple starts with the right voltage (bk_out - INJECT)
+.ic V(x_bk1.bk_ac)=0.7 V(x_bk2.bk_ac)=-0.4
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 4: Backward Path - Weight Update
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 4: Backward Weight Update"
+echo "============================================"
+* Static inputs during learning
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = -0.3
+alter @Vin2[sin] = [ -0.3 0 0 0 0 0 ]
+* Error pulse: 0.5V for 50ms starting at 10ms
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0.5 10m 100u 100u 50m 200m ]
+tran 100u 150m UIC
+wrdata neuron_backward.txt V(w1_node) V(w2_node) V(err_in) V(vout)
+echo "Diagnostics:"
+meas TRAN bk_ac1_early FIND V(x_bk1.bk_ac) AT=0.5m
+meas TRAN bk_ac2_early FIND V(x_bk2.bk_ac) AT=0.5m
+meas TRAN bk_out1 FIND V(x_bk1.bk_out) AT=0.5m
+meas TRAN bk_out2 FIND V(x_bk2.bk_out) AT=0.5m
+meas TRAN w1_pre  FIND V(w1_node) AT=9m
+meas TRAN w1_mid  FIND V(w1_node) AT=40m
+meas TRAN w1_end  FIND V(w1_node) AT=61m
+meas TRAN w1_post FIND V(w1_node) AT=80m
+meas TRAN w2_pre  FIND V(w2_node) AT=9m
+meas TRAN w2_mid  FIND V(w2_node) AT=40m
+meas TRAN w2_end  FIND V(w2_node) AT=61m
+meas TRAN w2_post FIND V(w2_node) AT=80m
+echo "--- Weight at pulse start, mid-pulse, pulse end, post-settle ---"
+echo "W1:"
+print w1_pre w1_mid w1_end w1_post
+echo "W2:"
+print w2_pre w2_mid w2_end w2_post
+let dw1_pulse = w1_end - w1_pre
+let dw2_pulse = w2_end - w2_pre
+let dw1_total = w1_post - w1_pre
+let dw2_total = w2_post - w2_pre
+echo "--- Weight changes during pulse (pre to end) ---"
+print dw1_pulse dw2_pulse
+let ratio_pulse = abs(dw1_pulse / dw2_pulse)
+echo "Ratio during pulse (expect 1.67):"
+print ratio_pulse
+echo "--- Weight changes total (pre to post-settle) ---"
+print dw1_total dw2_total
+let ratio_total = abs(dw1_total / dw2_total)
+echo "Ratio total:"
+print ratio_total
+
+echo ""
+echo "Backward test complete."
+
+.endc
+.end

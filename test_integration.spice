@@ -1,0 +1,151 @@
+* Integration Tests (Tests 8, 9, 10)
+* Forward/error isolation, coexistence, multi-config gradient
+
+.include testbench.spice
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 8: Forward Output Unaffected by Gradient Current
+* Gradient current at VIN should not perturb V(OUT)
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 8: Forward Output vs ERR (Transient)"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+* ERR steps from 0 to 1V at t=50us
+alter @Verr[pulse] = [ 0 1.0 50u 1n 1n 200u 400u ]
+tran 1u 100u UIC
+wrdata neuron_fwd_err_test.txt V(vout) V(err_in)
+meas TRAN vout_before FIND V(vout) AT=25u
+meas TRAN vout_after  FIND V(vout) AT=75u
+let vout_diff = vout_after - vout_before
+echo "V(vout) before ERR pulse (ERR=0):"
+print vout_before
+echo "V(vout) after ERR pulse (ERR=1V):"
+print vout_after
+echo "Difference (expect < 1mV — gradient current absorbed by Vin sources):"
+print vout_diff
+
+* =====================================================================
+* Test 9: Output Drives Signal Despite Gradient Current
+* Forward sine output should be unaffected by backward path activity
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 9: Forward + Gradient Coexistence"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0.8 1k 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0.5 1.7k 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 1.0 1m 100u 100u 2m 5m ]
+tran 1u 5m UIC
+wrdata neuron_fwd_grad.txt V(vin1) V(vin2) V(vout) I(Vin1) I(Vin2)
+meas TRAN vout9_pk MAX V(vout)
+meas TRAN vout9_min MIN V(vout)
+echo "Output swing with gradient current active:"
+print vout9_pk vout9_min
+echo "(Should match Test 3 swing)"
+
+* =====================================================================
+* Test 10: Multi-Config Gradient Verification
+* Sweep ERR per config to extract pure gradient current (no divider offset)
+* VIN=0 to prevent bk_mult weight shift
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 10: Multi-Config Gradient Verification"
+echo "============================================"
+
+* --- Case A: W1=+0.7, W2=-0.4 ---
+echo "--- Case A: W1_prog=+0.7, W2_prog=-0.4 ---"
+alter Vw1_prog DC = 0.7
+alter Vw2_prog DC = -0.4
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+dc Verr -1.1 1.1 0.1
+meas DC w1a FIND V(w1_node) AT=0
+meas DC w2a FIND V(w2_node) AT=0
+echo "W1_eff, W2_eff:"
+print w1a w2a
+meas DC i1a_0 FIND I(Vin1) AT=0
+meas DC i1a_1 FIND I(Vin1) AT=1
+meas DC i2a_0 FIND I(Vin2) AT=0
+meas DC i2a_1 FIND I(Vin2) AT=1
+let grad_a1 = i1a_1 - i1a_0
+let grad_a2 = i2a_1 - i2a_0
+let expect_a1 = 1e-6 * 1.0 * w1a
+let expect_a2 = 1e-6 * 1.0 * w2a
+echo "Pure gradient at ERR=+1V vs expected (K*W_eff):"
+print grad_a1 expect_a1 grad_a2 expect_a2
+echo "Sign check: grad_a1 should be > 0 (pos W * pos ERR):"
+print grad_a1
+echo "Sign check: grad_a2 should be < 0 (neg W * pos ERR):"
+print grad_a2
+
+* --- Case B: W1=+1.0, W2=+1.0 ---
+echo "--- Case B: W1_prog=+1.0, W2_prog=+1.0 ---"
+alter Vw1_prog DC = 1.0
+alter Vw2_prog DC = 1.0
+dc Verr -1.1 1.1 0.1
+meas DC w1b FIND V(w1_node) AT=0
+meas DC w2b FIND V(w2_node) AT=0
+echo "W1_eff, W2_eff (should be equal ~0.909):"
+print w1b w2b
+meas DC i1b_0 FIND I(Vin1) AT=0
+meas DC i1b_1 FIND I(Vin1) AT=1
+meas DC i2b_0 FIND I(Vin2) AT=0
+meas DC i2b_1 FIND I(Vin2) AT=1
+let grad_b1 = i1b_1 - i1b_0
+let grad_b2 = i2b_1 - i2b_0
+echo "Gradients (should be equal, both positive at ERR=+1):"
+print grad_b1 grad_b2
+let expect_b = 1e-6 * 1.0 * w1b
+echo "Expected:"
+print expect_b
+meas DC i1b_n1 FIND I(Vin1) AT=-1
+let grad_b1_neg = i1b_n1 - i1b_0
+echo "At ERR=-1V (should be negative):"
+print grad_b1_neg
+
+* --- Case C: W1=0, W2=-0.4 ---
+echo "--- Case C: W1_prog=0, W2_prog=-0.4 ---"
+alter Vw1_prog DC = 0
+alter Vw2_prog DC = -0.4
+dc Verr -1.1 1.1 0.1
+meas DC w1c FIND V(w1_node) AT=0
+meas DC w2c FIND V(w2_node) AT=0
+echo "W1_eff (should be ~0), W2_eff:"
+print w1c w2c
+meas DC i1c_0 FIND I(Vin1) AT=0
+meas DC i1c_1 FIND I(Vin1) AT=1
+meas DC i2c_0 FIND I(Vin2) AT=0
+meas DC i2c_1 FIND I(Vin2) AT=1
+let grad_c1 = i1c_1 - i1c_0
+let grad_c2 = i2c_1 - i2c_0
+echo "Gradient at VIN1 (should be ~0 since W1=0):"
+print grad_c1
+echo "Gradient at VIN2 (should be negative since W2<0, ERR>0):"
+print grad_c2
+
+* Restore original weight programming
+alter Vw1_prog DC = 0.7
+alter Vw2_prog DC = -0.4
+
+echo ""
+echo "Integration tests complete."
+
+.endc
+.end
