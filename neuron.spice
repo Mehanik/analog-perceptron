@@ -24,28 +24,31 @@
 .include models.spice
 
 ***********************************************************************
-* BACKWARD MULTIPLIER — DC-coupled
+* BACKWARD MULTIPLIER — voltage-output Gilbert cell
 *
-* Gilbert cell analog multiplier: I_out = K * GAIN * SIGNAL
-* Output current injected into INJECT node through 960k resistor.
-* DC-compatible: the voltage source at INJECT absorbs any DC offset.
-* Mirror output (outn_bk) drives R_inject directly (no buffering needed
-* since 960k is negligible load vs R_trans 1.1k).
+* Gilbert cell analog multiplier: V(OUT) = f(GAIN, SIGNAL)
+* Outputs a voltage proportional to GAIN * SIGNAL at the OUT port.
+* The caller adds external R_inject (960k) and optional coupling cap
+* to connect to the target node (VIN terminal or weight capacitor).
 *
-* Used inside neuron as gradient cell:
-*   GAIN=weight, SIGNAL=error, INJECT=VIN terminal
+* Used inside neuron as gradient cell (DC-coupled):
+*   X_grad ... bk_mult  +  R_inject OUT TARGET 960k
+*
+* Used at testbench level for weight update (AC-coupled):
+*   X_bk ... bk_mult  +  C_couple OUT mid 1u  +  R_inject mid TARGET 960k
+*   (.ic pre-charges C_couple so R_inject sees no DC)
 *
 * Ports:
 *   GAIN    — Multiplier input A. Fed through 15:1 divider to upper quad.
 *   SIGNAL  — Multiplier input B. Drives lower differential pair vs GND.
-*   INJECT  — Output. Result current ~1 uA/V^2 injected here via R_inject.
+*   OUT     — Voltage output (mirror node after R_trans).
 *   VCC/VEE — Power rails.
 *   WBIAS   — Reference for 15:1 divider midpoint.
 *   TAILREF — Mirror reference for 2mA tail current source.
 *   REF3    — Reference for transimpedance resistor.
 ***********************************************************************
 
-.subckt bk_mult GAIN SIGNAL INJECT VCC VEE WBIAS TAILREF REF3
+.subckt bk_mult GAIN SIGNAL OUT VCC VEE WBIAS TAILREF REF3
 
 * 15:1 symmetric divider for GAIN
 * Keeps upper quad differential input in linear tanh region
@@ -69,75 +72,18 @@ Re_b e_b tail_bk 1k
 * Upper quad (cross-coupled Gilbert topology)
 * Multiplies lower pair current split by GAIN-derived differential
 Q_q3 outp_bk wp_bk c_a NPN_AN
-Q_q4 outn_bk wn_bk c_a NPN_AN
+Q_q4 OUT wn_bk c_a NPN_AN
 Q_q5 outp_bk wn_bk c_b NPN_AN
-Q_q6 outn_bk wp_bk c_b NPN_AN
+Q_q6 OUT wp_bk c_b NPN_AN
 
 * PNP current mirror load (differential to single-ended)
 Q_m1_bk outp_bk outp_bk VCC PNP_AN
-Q_m2_bk outn_bk outp_bk VCC PNP_AN
+Q_m2_bk OUT outp_bk VCC PNP_AN
 
 * Transimpedance: convert mirror output current to voltage
-R_trans_bk outn_bk REF3 1.1k
-
-* Output: inject current into INJECT node
-* I_inject = V(outn_bk) / 960k ~ K * GAIN * SIGNAL
-* (960k = 700k / 0.725 to compensate for removed EF+divider gain)
-R_inject outn_bk INJECT 960k
+R_trans_bk OUT REF3 1.1k
 
 .ends bk_mult
-
-***********************************************************************
-* BACKWARD MULTIPLIER — AC-coupled
-*
-* Same as bk_mult but with 1uF coupling cap before R_inject.
-* Blocks DC offset that would drift weight capacitors.
-* For use when INJECT is a weight capacitor node.
-* Mirror output drives coupling cap directly (no EF buffer needed).
-*
-* Requires .ic V(x.bk_ac)=V_target_init to pre-charge coupling cap.
-***********************************************************************
-
-.subckt bk_mult_ac GAIN SIGNAL INJECT VCC VEE WBIAS TAILREF REF3
-
-* 15:1 symmetric divider for GAIN
-R_dp_top GAIN wp_bk 14k
-R_dp_bot wp_bk WBIAS 1k
-R_dn_gnd gnd_bk_w 0 1
-R_dn_top gnd_bk_w wn_bk 14k
-R_dn_bot wn_bk WBIAS 1k
-
-* Tail current source (2mA, mirrored from TAILREF)
-Q_tail_bk tail_bk TAILREF VEE NPN_AN
-
-* Lower differential pair (SIGNAL vs GND)
-Q_a c_a SIGNAL e_a NPN_AN
-Q_b c_b gnd_bk_s e_b NPN_AN
-R_gnd_bk gnd_bk_s 0 1
-Re_a e_a tail_bk 1k
-Re_b e_b tail_bk 1k
-
-* Upper quad (cross-coupled Gilbert topology)
-Q_q3 outp_bk wp_bk c_a NPN_AN
-Q_q4 outn_bk wn_bk c_a NPN_AN
-Q_q5 outp_bk wn_bk c_b NPN_AN
-Q_q6 outn_bk wp_bk c_b NPN_AN
-
-* PNP current mirror load
-Q_m1_bk outp_bk outp_bk VCC PNP_AN
-Q_m2_bk outn_bk outp_bk VCC PNP_AN
-
-* Transimpedance
-R_trans_bk outn_bk REF3 1.1k
-
-* AC coupling + output injection
-* C_couple blocks DC offset; passes signal (tau = 0.96s >> pulse width)
-* Pre-charge with .ic V(bk_ac) = V(INJECT_init)
-* (960k = 700k / 0.725 to compensate for removed EF+divider gain)
-C_couple outn_bk bk_ac 1u
-R_inject bk_ac INJECT 960k
-
-.ends bk_mult_ac
 
 ***********************************************************************
 * NEURON SUBCIRCUIT
@@ -282,15 +228,19 @@ R_out out_mid OUT 30
 * Generate gradient current at each input terminal:
 *   I(VIN_i) = K * W_i * ERR,  K ~ 1 uA/V^2
 *
-* Each cell is a bk_mult with:
+* Each cell is a bk_mult with external R_inject (960k):
 *   GAIN   = W_i (weight buffer)
 *   SIGNAL = ERR (error voltage)
-*   INJECT = VIN_i (gradient current sinks into input terminal)
+*   OUT    → R_inject → VIN_i (gradient current sinks into input terminal)
+*
+* DC-coupled: voltage source at VIN absorbs DC offset from outn_bk.
 *
 * Positive ERR * positive W -> positive current into VIN
 * (current sinks from upstream output through wire into this input)
 * ==================================================================
-X_grad1 w1_buf ERR VIN1 VCC VEE w_bias tail_ref ref3 bk_mult
-X_grad2 w2_buf ERR VIN2 VCC VEE w_bias tail_ref ref3 bk_mult
+X_grad1 w1_buf ERR grad1_out VCC VEE w_bias tail_ref ref3 bk_mult
+R_grad1_inject grad1_out VIN1 960k
+X_grad2 w2_buf ERR grad2_out VCC VEE w_bias tail_ref ref3 bk_mult
+R_grad2_inject grad2_out VIN2 960k
 
 .ends neuron

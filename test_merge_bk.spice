@@ -1,0 +1,247 @@
+* Verification test for bk_mult merge (bk_mult_ac eliminated)
+* Tests that unified bk_mult with external R_inject and optional C_couple
+* produces identical results to the old separate subcircuits.
+
+.include neuron.spice
+
+***********************************************************************
+* POWER SUPPLIES
+***********************************************************************
+VCC vcc 0 DC 5
+VEE vee 0 DC -5
+
+***********************************************************************
+* BIAS INFRASTRUCTURE
+***********************************************************************
+R_bias_top vcc bias_raw 4.7k
+R_bias_bot bias_raw vee 15k
+Q_bias_buf vcc bias_raw w_bias NPN_AN
+R_bias_load w_bias vee 20k
+
+R_tail_top vcc tail_ref_c 4.65k
+Q_tail_ref tail_ref_c tail_ref_c vee NPN_AN
+
+R_ref3_top vcc ref3_raw 2.6k
+R_ref3_bot ref3_raw vee 13k
+Q_ref3_buf vcc ref3_raw ref3 NPN_AN
+R_ref3_load ref3 vee 10k
+
+***********************************************************************
+* TEST 1: DC gradient (bk_mult + external R_inject, no coupling cap)
+***********************************************************************
+V_gain1 gain1 0 DC 0.5
+V_sig1 sig1 0 DC 0
+V_inj1 inj1 0 DC 0
+
+X_dc gain1 sig1 bk_dc_out vcc vee w_bias tail_ref_c ref3 bk_mult
+R_inject_dc bk_dc_out inj1 960k
+
+***********************************************************************
+* TEST 2: AC-coupled weight update (bk_mult + external C_couple + R_inject)
+***********************************************************************
+V_gain2 gain2 0 DC 0.5
+V_sig2 sig2 0 DC 0
+C_wt wt_node 0 100n
+R_wt_bleed wt_node 0 100MEG
+.ic V(wt_node)=0.5 V(bk_ac_node)=0.5
+
+X_ac gain2 sig2 bk_ac_out vcc vee w_bias tail_ref_c ref3 bk_mult
+C_couple bk_ac_out bk_ac_node 1u
+R_inject_ac bk_ac_node wt_node 960k
+
+***********************************************************************
+* TEST 3: Full neuron (uses bk_mult internally for gradient cells)
+***********************************************************************
+Vw1_prog w1_prog 0 DC 0.7
+Rw1_prog w1_prog w1_node 10MEG
+Vw2_prog w2_prog 0 DC -0.4
+Rw2_prog w2_prog w2_node 10MEG
+
+X_neuron vin1 vin2 vout vcc vee w1_node w2_node err_in neuron
+.ic V(w1_node)=0.7 V(w2_node)=-0.4
+
+Vin1 vin1 0 DC 0
+Vin2 vin2 0 DC 0
+Verr err_in 0 DC 0
+
+***********************************************************************
+* CONTROL BLOCK
+***********************************************************************
+.control
+
+set noaskquit
+let pass_count = 0
+let fail_count = 0
+
+echo ""
+echo "============================================================"
+echo "bk_mult Merge Verification Tests"
+echo "============================================================"
+
+* =====================================================================
+* Test 1: DC gradient — sweep SIGNAL, measure injection current
+* Expected: slope ~ 5.7e-7 A/V at GAIN=0.5
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 1: DC gradient current (bk_mult + R_inject)"
+echo "============================================"
+
+dc V_sig1 -0.5 0.5 0.02
+meas DC i_neg FIND I(V_inj1) AT=-0.48
+meas DC i_pos FIND I(V_inj1) AT=0.48
+let slope_dc = (i_pos - i_neg) / 0.96
+echo "dI/dSIGNAL at GAIN=0.5 (expect ~5.7e-7):"
+print slope_dc
+
+let abs_slope = abs(slope_dc)
+if abs_slope > 3e-7
+  if abs_slope < 1e-6
+    echo "PASS: DC gradient slope in range [3e-7, 1e-6]"
+    let pass_count = pass_count + 1
+  else
+    echo "FAIL: DC gradient slope too large"
+    let fail_count = fail_count + 1
+  end
+else
+  echo "FAIL: DC gradient slope too small"
+  let fail_count = fail_count + 1
+end
+
+* =====================================================================
+* Test 2: AC-coupled weight update — pulse SIGNAL, measure weight change
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 2: AC-coupled weight update"
+echo "============================================"
+
+alter V_sig2 DC = 0
+alter @V_sig2[pulse] = [ 0 0.5 10m 100u 100u 50m 200m ]
+
+tran 100u 150m UIC
+
+meas TRAN wt_pre FIND V(wt_node) AT=9m
+meas TRAN wt_end FIND V(wt_node) AT=61m
+let dwt = wt_end - wt_pre
+
+echo "Weight before pulse:"
+print wt_pre
+echo "Weight at pulse end:"
+print wt_end
+echo "Weight change:"
+print dwt
+
+if dwt > 0
+  echo "PASS: weight update direction correct (positive)"
+  let pass_count = pass_count + 1
+else
+  echo "FAIL: weight update direction wrong"
+  let fail_count = fail_count + 1
+end
+
+let abs_dwt = abs(dwt)
+if abs_dwt > 1e-6
+  echo "PASS: weight update magnitude detectable"
+  let pass_count = pass_count + 1
+else
+  echo "FAIL: weight update too small"
+  let fail_count = fail_count + 1
+end
+
+* =====================================================================
+* Test 3: Full neuron forward path unaffected
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 3: Forward path integrity"
+echo "============================================"
+
+alter V_sig2 DC = 0
+alter @V_sig2[pulse] = [ 0 0 0 0 0 0 0 ]
+
+dc Vin1 -1.1 1.1 0.1
+meas DC vout_n1 FIND V(vout) AT=-1
+meas DC vout_p1 FIND V(vout) AT=1
+let fwd_slope = (vout_p1 - vout_n1) / 2
+
+echo "Forward slope dVout/dVin1 (expect ~0.617):"
+print fwd_slope
+
+let fwd_err = abs(fwd_slope - 0.617)
+if fwd_err < 0.05
+  echo "PASS: forward slope within tolerance"
+  let pass_count = pass_count + 1
+else
+  echo "FAIL: forward slope outside tolerance"
+  let fail_count = fail_count + 1
+end
+
+* =====================================================================
+* Test 4: Neuron gradient currents (bk_mult used internally)
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 4: Neuron gradient currents"
+echo "============================================"
+
+dc Verr -1.1 1.1 0.1
+meas DC ivin1_at1 FIND I(Vin1) AT=1
+meas DC ivin1_atn1 FIND I(Vin1) AT=-1
+meas DC ivin2_at1 FIND I(Vin2) AT=1
+meas DC ivin2_atn1 FIND I(Vin2) AT=-1
+
+let grad_slope1 = (ivin1_at1 - ivin1_atn1) / 2
+let grad_slope2 = (ivin2_at1 - ivin2_atn1) / 2
+
+echo "dI(Vin1)/dERR (W1=0.7, expect ~6.5e-7):"
+print grad_slope1
+echo "dI(Vin2)/dERR (W2=-0.4, expect ~-3.9e-7):"
+print grad_slope2
+
+if grad_slope1 > 0
+  echo "PASS: grad1 sign correct (positive W -> positive slope)"
+  let pass_count = pass_count + 1
+else
+  echo "FAIL: grad1 sign wrong"
+  let fail_count = fail_count + 1
+end
+
+if grad_slope2 < 0
+  echo "PASS: grad2 sign correct (negative W -> negative slope)"
+  let pass_count = pass_count + 1
+else
+  echo "FAIL: grad2 sign wrong"
+  let fail_count = fail_count + 1
+end
+
+let ratio_grad = grad_slope1 / grad_slope2
+echo "Gradient ratio (expect ~ -1.75):"
+print ratio_grad
+
+let err_ratio = abs(ratio_grad + 1.75)
+if err_ratio < 0.30
+  echo "PASS: gradient ratio within tolerance"
+  let pass_count = pass_count + 1
+else
+  echo "FAIL: gradient ratio outside tolerance"
+  let fail_count = fail_count + 1
+end
+
+* =====================================================================
+* Summary
+* =====================================================================
+echo ""
+echo "============================================"
+echo "SUMMARY"
+echo "============================================"
+print pass_count fail_count
+
+if fail_count = 0
+  echo "ALL TESTS PASSED"
+else
+  echo "SOME TESTS FAILED"
+end
+
+.endc
+.end

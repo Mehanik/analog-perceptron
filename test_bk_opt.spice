@@ -1,5 +1,5 @@
 * Backward Multiplier Optimization Validation Tests
-* Verifies that removing EF+divider from bk_mult/bk_mult_ac output stage
+* Verifies that removing EF+divider from bk_mult output stage
 * preserves gradient current magnitude, linearity, and weight update behavior.
 
 .include neuron.spice
@@ -36,17 +36,20 @@ V_sig sig_node 0 DC 0
 * Cell A: GAIN=0.5
 V_gain_a gain_a 0 DC 0.5
 V_inj_a inj_a 0 DC 0
-X_a gain_a sig_node inj_a vcc vee w_bias tail_ref_c ref3 bk_mult
+X_a gain_a sig_node bk_out_a vcc vee w_bias tail_ref_c ref3 bk_mult
+R_inject_a bk_out_a inj_a 960k
 
 * Cell B: GAIN=0.3
 V_gain_b gain_b 0 DC 0.3
 V_inj_b inj_b 0 DC 0
-X_b gain_b sig_node inj_b vcc vee w_bias tail_ref_c ref3 bk_mult
+X_b gain_b sig_node bk_out_b vcc vee w_bias tail_ref_c ref3 bk_mult
+R_inject_b bk_out_b inj_b 960k
 
 * Cell C: GAIN=0.7
 V_gain_c gain_c 0 DC 0.7
 V_inj_c inj_c 0 DC 0
-X_c gain_c sig_node inj_c vcc vee w_bias tail_ref_c ref3 bk_mult
+X_c gain_c sig_node bk_out_c vcc vee w_bias tail_ref_c ref3 bk_mult
+R_inject_c bk_out_c inj_c 960k
 
 ***********************************************************************
 * FULL NEURON INSTANCE for gradient and forward tests
@@ -64,14 +67,16 @@ Vin2 vin2 0 DC 0
 Verr err_in 0 DC 0
 
 ***********************************************************************
-* STANDALONE bk_mult_ac CELL for weight update test
+* STANDALONE bk_mult CELL with AC coupling for weight update test
 ***********************************************************************
 V_gain_ac gain_ac 0 DC 0.5
 C_wt wt_node 0 100n
 R_wt_bleed wt_node 0 100MEG
-.ic V(wt_node)=0.5 V(x_ac.bk_ac)=0.5
+.ic V(wt_node)=0.5 V(bk_ac_wt)=0.5
 
-X_ac gain_ac err_ac wt_node vcc vee w_bias tail_ref_c ref3 bk_mult_ac
+X_ac gain_ac err_ac bk_out_ac vcc vee w_bias tail_ref_c ref3 bk_mult
+C_couple_ac bk_out_ac bk_ac_wt 1u
+R_inject_ac bk_ac_wt wt_node 960k
 Verr_ac err_ac 0 DC 0
 
 ***********************************************************************
@@ -308,11 +313,11 @@ else
 end
 
 * =====================================================================
-* Test 5: bk_mult_ac weight update (transient)
+* Test 5: bk_mult AC-coupled weight update (transient)
 * =====================================================================
 echo ""
 echo "============================================"
-echo "Test 5: bk_mult_ac weight update"
+echo "Test 5: bk_mult AC-coupled weight update"
 echo "============================================"
 
 * Reset inputs for transient
@@ -336,7 +341,7 @@ meas TRAN wt_end FIND V(wt_node) AT=61m
 let dwt_pulse = wt_end - wt_pre
 
 echo ""
-echo "--- Standalone bk_mult_ac weight update ---"
+echo "--- Standalone bk_mult AC-coupled weight update ---"
 echo "Weight before pulse:"
 print wt_pre
 echo "Weight mid-pulse:"
@@ -374,24 +379,24 @@ op
 
 echo ""
 echo "--- bk_mult DC operating points ---"
-echo "Cell A outn_bk voltage:"
-print V(x_a.outn_bk)
+echo "Cell A output voltage (bk_out_a):"
+print V(bk_out_a)
 echo "REF3 voltage:"
 print V(ref3)
 
-let i_trans_a = (V(x_a.outn_bk) - V(ref3)) / 1100
-echo "R_trans current (outn_bk to REF3):"
+let i_trans_a = (V(bk_out_a) - V(ref3)) / 1100
+echo "R_trans current (OUT to REF3):"
 print i_trans_a
 
-let i_dc_inject_a = (V(x_a.outn_bk) - V(inj_a)) / 960000
+let i_dc_inject_a = (V(bk_out_a) - V(inj_a)) / 960000
 echo "DC current through R_inject:"
 print i_dc_inject_a
 
 echo ""
 echo "Note: DC inject current is absorbed by the VIN voltage source."
-echo "In bk_mult_ac, coupling cap blocks this DC entirely."
-echo "The gradient signal rides on top of this baseline and is"
-echo "correctly extracted by subtracting I(ERR=0)."
+echo "With external AC coupling (C_couple + R_inject), the cap blocks"
+echo "this DC entirely. The gradient signal rides on top of this"
+echo "baseline and is correctly extracted by subtracting I(ERR=0)."
 
 echo ""
 echo "============================================"

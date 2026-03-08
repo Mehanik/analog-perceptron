@@ -9,16 +9,16 @@ Analog neural network implemented as an ngspice circuit. A single neuron compute
 ## File Structure
 
 - `models.spice` — NPN_AN and PNP_AN BJT model definitions
-- `neuron.spice` — Subcircuit definitions: `bk_mult`, `bk_mult_ac`, `neuron`
+- `neuron.spice` — Subcircuit definitions: `bk_mult`, `neuron`
 - `testbench.spice` — Shared testbench (power, weight programming, neuron instance)
 - `test_forward.spice` — Tests 1-3 (DC op, DC sweep, transient)
-- `test_backward.spice` — Test 4 (weight update via bk_mult_ac)
+- `test_backward.spice` — Test 4 (weight update via bk_mult + external AC coupling)
 - `test_impedance.spice` — Test 5 (output impedance)
 - `test_gradient.spice` — Tests 6-7 (chain rule, gradient linearity)
 - `test_integration.spice` — Tests 8-10 (isolation, coexistence, multi-config)
 - `neuron_tests.spice` — All 10 tests in one file (gradient tests less accurate due to VIN loading from weight update cells)
 - `test_bk_mult.spice` — Standalone bk_mult characterization
-- `test_bk_opt.spice` — Validates bk_mult/bk_mult_ac optimization (EF+divider removal)
+- `test_bk_opt.spice` — Validates bk_mult optimization (EF+divider removal)
 - `test_bias_sharing.spice` — Validates shared w_bias/tail_ref between forward and backward paths
 - `test_ref3_sharing.spice` — Validates shared ref3 between forward and backward paths (coupling test)
 - `gilbert_test.spice` — Standalone forward Gilbert cell test
@@ -61,19 +61,22 @@ ngspice -b neuron_tests.spice
 
 ### Backward Path
 
-Two types of backward multiplier subcircuits:
+Single voltage-output multiplier subcircuit:
 
-- **`bk_mult`** (DC-compatible): for gradient cells where TARGET is a voltage source
-  - NPN Gilbert cell + PNP mirror + R_trans(1.1k) + R_inject(960k)
-  - Mirror output drives R_inject directly (960k negligible load vs R_trans)
-  - DC offset at outn_bk absorbed by voltage source at INJECT
+- **`bk_mult`** (ports: GAIN SIGNAL OUT VCC VEE WBIAS TAILREF REF3)
+  - NPN Gilbert cell + PNP mirror + R_trans(1.1k)
+  - Outputs voltage at OUT proportional to GAIN * SIGNAL
+  - Caller adds external R_inject (960k) and optional coupling cap
+
+- **DC-coupled use** (gradient cells inside neuron):
+  - `X_grad ... bk_mult` + `R_inject OUT VIN 960k`
+  - DC offset absorbed by voltage source at VIN
   - Gradient cells share w_bias, tail_ref, and ref3 with forward path
-  - ref3 shared with forward path; coupling ~14mV at ERR=1V (acceptable for learning; forward slope/gradient/Z_out unaffected)
 
-- **`bk_mult_ac`** (transient-only): for weight update cells where TARGET is a capacitor
-  - Same as bk_mult but with 1uF coupling cap before R_inject(960k)
+- **AC-coupled use** (weight update cells at testbench level):
+  - `X_bk ... bk_mult` + `C_couple OUT mid 1u` + `R_inject mid W_NODE 960k`
   - Coupling cap blocks DC offset that would drift weight caps
-  - Requires `.ic V(x.bk_ac)=V_target_init` to pre-charge coupling cap
+  - Requires `.ic V(mid)=V_weight_init` to pre-charge coupling cap
 
 ### Weight Storage
 - 100nF caps with 100M bleed resistors

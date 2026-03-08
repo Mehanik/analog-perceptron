@@ -1,0 +1,198 @@
+* Neuron Testbench — Run All Tests
+* Individual test files: test_forward.spice, test_backward.spice,
+*   test_impedance.spice, test_gradient.spice, test_integration.spice
+
+.include testbench.spice
+
+* Backward weight update cells — own bias infrastructure
+R_bk_tb_bias_top vcc bk_tb_bias_raw 4.7k
+R_bk_tb_bias_bot bk_tb_bias_raw vee 15k
+Q_bk_tb_bias_buf vcc bk_tb_bias_raw w_bias_bk_tb NPN_AN
+R_bk_tb_bias_load w_bias_bk_tb vee 20k
+
+R_bk_tb_tail_ref vcc bk_tb_tail_ref_c 4.65k
+Q_bk_tb_tail_ref bk_tb_tail_ref_c bk_tb_tail_ref_c vee NPN_AN
+
+R_bk_tb_ref3_top vcc bk_tb_ref3_raw 2.6k
+R_bk_tb_ref3_bot bk_tb_ref3_raw vee 13k
+Q_bk_tb_ref3_buf vcc bk_tb_ref3_raw bk_tb_ref3 NPN_AN
+R_bk_tb_ref3_load bk_tb_ref3 vee 10k
+
+X_bk1 vin1 err_in bk1_out vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult
+C_couple_bk1 bk1_out bk_ac1 1u
+R_inject_bk1 bk_ac1 w1_node 960k
+
+X_bk2 vin2 err_in bk2_out vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult
+C_couple_bk2 bk2_out bk_ac2 1u
+R_inject_bk2 bk_ac2 w2_node 960k
+
+.ic V(bk_ac1)=0.7 V(bk_ac2)=-0.4
+
+.control
+set noaskquit
+
+echo "============================================"
+echo "Test 1: DC Operating Point"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter Vin2 DC = 0.3
+alter Verr DC = 0
+op
+print V(vout) V(w1_node) V(w2_node)
+
+echo "============================================"
+echo "Test 2: DC Sweep Vin1 (-1 to +1)"
+echo "============================================"
+alter Vin2 DC = 0.3
+dc Vin1 -1 1 0.02
+wrdata neuron_dc_sweep.txt V(vout)
+meas DC vout_n1 FIND V(vout) AT=-1
+meas DC vout_p1 FIND V(vout) AT=1
+let slope = (vout_p1 - vout_n1) / 2
+echo "Slope (expect ~0.636):"
+print slope
+
+echo "============================================"
+echo "Test 3: Transient Forward"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0.8 1k 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0.5 1.7k 0 0 0 ]
+alter Verr DC = 0
+tran 1u 5m UIC
+wrdata neuron_fwd_transient.txt V(vin1) V(vin2) V(vout)
+meas TRAN vout_pk MAX V(vout)
+meas TRAN vout_min MIN V(vout)
+print vout_pk vout_min
+
+echo "============================================"
+echo "Test 4: Backward Weight Update"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = -0.3
+alter @Vin2[sin] = [ -0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0.5 10m 100u 100u 50m 200m ]
+tran 100u 150m UIC
+wrdata neuron_backward.txt V(w1_node) V(w2_node) V(err_in) V(vout)
+meas TRAN w1_pre FIND V(w1_node) AT=9m
+meas TRAN w1_post FIND V(w1_node) AT=80m
+meas TRAN w2_pre FIND V(w2_node) AT=9m
+meas TRAN w2_post FIND V(w2_node) AT=80m
+let dw1 = w1_post - w1_pre
+let dw2 = w2_post - w2_pre
+print dw1 dw2
+let ratio = abs(dw1 / dw2)
+echo "Ratio (expect ~1.67):"
+print ratio
+
+echo "============================================"
+echo "Test 5: Output Impedance"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+alter I_test DC = 0
+alter @I_test[pulse] = [ 0 1m 1m 1n 1n 2m 4m ]
+tran 1u 4m UIC
+meas TRAN v_before FIND V(vout) AT=0.5m
+meas TRAN v_after FIND V(vout) AT=2m
+let z_out = (v_after - v_before) / 1m
+echo "z_out (expect ~100):"
+print z_out
+alter I_test DC = 0
+alter @I_test[pulse] = [ 0 0 0 0 0 0 0 ]
+
+echo "============================================"
+echo "Test 6: Chain Rule Static"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter Verr DC = 1.0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+op
+print I(Vin1) I(Vin2)
+alter Verr DC = 0
+op
+echo "At ERR=0 (expect ~0):"
+print I(Vin1) I(Vin2)
+
+echo "============================================"
+echo "Test 7: Gradient Linearity"
+echo "============================================"
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+dc Verr -1 1 0.02
+wrdata neuron_grad_linearity.txt I(Vin1) I(Vin2)
+meas DC ivin1_n1 FIND I(Vin1) AT=-1
+meas DC ivin1_p1 FIND I(Vin1) AT=1
+let grad_slope1 = (ivin1_p1 - ivin1_n1) / 2
+meas DC ivin2_n1 FIND I(Vin2) AT=-1
+meas DC ivin2_p1 FIND I(Vin2) AT=1
+let grad_slope2 = (ivin2_p1 - ivin2_n1) / 2
+echo "Gradient slopes (expect 6.36e-7, -3.64e-7):"
+print grad_slope1 grad_slope2
+
+echo "============================================"
+echo "Test 8: Forward/Error Isolation"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 1.0 50u 1n 1n 200u 400u ]
+tran 1u 100u UIC
+meas TRAN vout_before FIND V(vout) AT=25u
+meas TRAN vout_after FIND V(vout) AT=75u
+let vout_diff = vout_after - vout_before
+echo "V(vout) change (expect < 1mV):"
+print vout_diff
+
+echo "============================================"
+echo "Test 9: Forward + Gradient Coexistence"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0.8 1k 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0.5 1.7k 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 1.0 1m 100u 100u 2m 5m ]
+tran 1u 5m UIC
+wrdata neuron_fwd_grad.txt V(vin1) V(vin2) V(vout) I(Vin1) I(Vin2)
+meas TRAN vout9_pk MAX V(vout)
+meas TRAN vout9_min MIN V(vout)
+echo "Swing (should match Test 3):"
+print vout9_pk vout9_min
+
+echo "============================================"
+echo "Test 10: Multi-Config Gradient"
+echo "============================================"
+alter Vw1_prog DC = 1.0
+alter Vw2_prog DC = 1.0
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter Verr DC = -1.0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+op
+echo "Symmetric W=+1.0, ERR=-1.0:"
+echo "I(Vin1) and I(Vin2) should be equal:"
+print I(Vin1) I(Vin2)
+alter Vw1_prog DC = 0.7
+alter Vw2_prog DC = -0.4
+
+echo ""
+echo "============================================"
+echo "All tests complete."
+echo "============================================"
+
+.endc
+.end

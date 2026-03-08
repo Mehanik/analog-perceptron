@@ -26,8 +26,9 @@ Vinb inb 0 DC 0
 * Inject node: voltage source to measure output current
 Vtarget target 0 DC 0
 
-* bk_mult: GAIN=ina, SIGNAL=inb, INJECT=target
-X1 ina inb target vcc vee w_bias tail_ref_c ref3 bk_mult
+* bk_mult outputs voltage at bk_out; external R_inject drives target
+X1 ina inb bk_out vcc vee w_bias tail_ref_c ref3 bk_mult
+R_inject bk_out target 960k
 
 .control
 set noaskquit
@@ -36,8 +37,8 @@ echo "============================================"
 echo "bk_mult Operating Point (GAIN=0.5, SIGNAL=0)"
 echo "============================================"
 op
-echo "outn_bk (mirror output, drives R_inject):"
-print V(x1.outn_bk)
+echo "bk_out (mirror output, drives R_inject):"
+print V(bk_out)
 echo "I(Vtarget) at quiescent:"
 print I(Vtarget)
 

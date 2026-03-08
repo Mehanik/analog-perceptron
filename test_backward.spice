@@ -1,6 +1,6 @@
 * Backward Path Tests (Tests 4)
-* Weight update via bk_mult_ac cells at testbench level
-* AC coupling blocks DC offset; .ic pre-charges coupling caps
+* Weight update via bk_mult cells with external AC coupling
+* Coupling cap blocks DC offset; .ic pre-charges coupling caps
 
 .include testbench.spice
 
@@ -18,13 +18,18 @@ R_bk_tb_ref3_bot bk_tb_ref3_raw vee 13k
 Q_bk_tb_ref3_buf vcc bk_tb_ref3_raw bk_tb_ref3 NPN_AN
 R_bk_tb_ref3_load bk_tb_ref3 vee 10k
 
-* Weight update cells using AC-coupled variant
-X_bk1 vin1 err_in w1_node vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult_ac
-X_bk2 vin2 err_in w2_node vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult_ac
+* Weight update cells using bk_mult + external AC coupling
+X_bk1 vin1 err_in bk1_out vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult
+C_couple_bk1 bk1_out bk_ac1 1u
+R_inject_bk1 bk_ac1 w1_node 960k
 
-* Pre-charge internal coupling cap nodes to match INJECT initial values
-* bk_ac node should start at the weight cap voltage so R_inject sees no DC
-.ic V(x_bk1.bk_ac)=0.7 V(x_bk2.bk_ac)=-0.4
+X_bk2 vin2 err_in bk2_out vcc vee w_bias_bk_tb bk_tb_tail_ref_c bk_tb_ref3 bk_mult
+C_couple_bk2 bk2_out bk_ac2 1u
+R_inject_bk2 bk_ac2 w2_node 960k
+
+* Pre-charge coupling cap nodes to match weight initial values
+* so R_inject sees no DC at startup
+.ic V(bk_ac1)=0.7 V(bk_ac2)=-0.4
 
 .control
 
@@ -48,10 +53,10 @@ alter @Verr[pulse] = [ 0 0.5 10m 100u 100u 50m 200m ]
 tran 100u 150m UIC
 wrdata neuron_backward.txt V(w1_node) V(w2_node) V(err_in) V(vout)
 echo "Diagnostics:"
-meas TRAN bk_ac1_early FIND V(x_bk1.bk_ac) AT=0.5m
-meas TRAN bk_ac2_early FIND V(x_bk2.bk_ac) AT=0.5m
-meas TRAN outn1 FIND V(x_bk1.outn_bk) AT=0.5m
-meas TRAN outn2 FIND V(x_bk2.outn_bk) AT=0.5m
+meas TRAN bk_ac1_early FIND V(bk_ac1) AT=0.5m
+meas TRAN bk_ac2_early FIND V(bk_ac2) AT=0.5m
+meas TRAN outn1 FIND V(bk1_out) AT=0.5m
+meas TRAN outn2 FIND V(bk2_out) AT=0.5m
 meas TRAN w1_pre  FIND V(w1_node) AT=9m
 meas TRAN w1_mid  FIND V(w1_node) AT=40m
 meas TRAN w1_end  FIND V(w1_node) AT=61m
