@@ -1,0 +1,177 @@
+* Ref3 Sharing Validation Tests
+* Verifies that sharing transimpedance reference (ref3) between forward
+* and backward paths does not introduce unacceptable coupling.
+*
+* Tests:
+*   1. Forward slope (DC sweep VIN1)
+*   2. Forward/backward coupling (ERR=0 vs ERR=1V)
+*   3. Gradient accuracy (ERR sweep, gradient current extraction)
+*   4. Shared ref3 operating point
+*   5. Output impedance spot check
+
+.include testbench.spice
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 1: Forward Slope
+* DC sweep VIN1, measure slope. Should match known value ~0.616.
+* PASS if within 1%.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 1: Forward Slope (ref3 shared)"
+echo "============================================"
+alter Vin1 DC = 0
+alter Vin2 DC = 0.3
+alter Verr DC = 0
+dc Vin1 -1.1 1.1 0.02
+meas DC vout_p02  FIND V(vout) AT=0.02
+meas DC vout_n02  FIND V(vout) AT=-0.02
+let slope = (vout_p02 - vout_n02) / 0.04
+echo "Forward slope near VIN1=0 (expect ~0.616):"
+print slope
+let slope_err = abs(slope - 0.616) / 0.616
+echo "Relative error vs 0.616:"
+print slope_err
+if slope_err < 0.01
+  echo ">>> PASS: Forward slope within 1%"
+else
+  echo ">>> FAIL: Forward slope deviation > 1%"
+end
+
+* =====================================================================
+* Test 2: Forward/Backward Coupling
+* Set VIN1=0.5, VIN2=0.3 (fixed DC).
+* Sweep ERR from -0.1 to +1.1 so AT=0 and AT=1 are interior points.
+* The difference in V(vout) reveals backward current coupling through
+* shared ref3.
+* PASS if coupling < 5mV (was 2.2uV with separate ref3).
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 2: Forward/Backward Coupling"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter Vin2 DC = 0.3
+dc Verr -0.1 1.1 0.1
+meas DC vout_err0 FIND V(vout) AT=0
+meas DC vout_err1 FIND V(vout) AT=1
+echo "V(vout) with ERR=0:"
+print vout_err0
+echo "V(vout) with ERR=1V:"
+print vout_err1
+let coupling = abs(vout_err1 - vout_err0)
+echo "Coupling |delta V(vout)| (expect < 5mV):"
+print coupling
+if coupling < 0.005
+  echo ">>> PASS: Forward/backward coupling < 5mV"
+else
+  echo ">>> FAIL: Forward/backward coupling >= 5mV"
+end
+
+* =====================================================================
+* Test 3: Gradient Accuracy
+* Sweep ERR, measure gradient current at VIN1.
+* Should still be ~6.4e-7 A/V (K * W1_eff).
+* PASS if within 5% of 6.4e-7.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 3: Gradient Accuracy"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+dc Verr -1.1 1.1 0.1
+meas DC ivin1_at0 FIND I(Vin1) AT=0
+meas DC ivin1_at1 FIND I(Vin1) AT=1
+meas DC ivin1_atn1 FIND I(Vin1) AT=-1
+
+let grad1_pos = ivin1_at1 - ivin1_at0
+let grad1_neg = ivin1_atn1 - ivin1_at0
+let grad_slope1 = (ivin1_at1 - ivin1_atn1) / 2
+echo "Gradient current at ERR=+1V (expect ~6.4e-7):"
+print grad1_pos
+echo "Gradient current at ERR=-1V (expect ~-6.4e-7):"
+print grad1_neg
+echo "Gradient slope dI(Vin1)/dERR (expect ~6.4e-7):"
+print grad_slope1
+
+let grad_err = abs(grad_slope1 - 6.4e-7) / 6.4e-7
+echo "Relative error vs 6.4e-7:"
+print grad_err
+if grad_err < 0.05
+  echo ">>> PASS: Gradient accuracy within 5%"
+else
+  echo ">>> FAIL: Gradient accuracy deviation > 5%"
+end
+
+* =====================================================================
+* Test 4: Shared Ref3 Operating Point
+* Print ref3 voltage. Should be ~2.62V.
+* PASS if within 50mV of 2.62V.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 4: Shared Ref3 Operating Point"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter Vin2 DC = 0.3
+alter Verr DC = 0
+op
+echo "V(ref3) inside neuron (expect ~2.62V):"
+print V(x1.ref3)
+
+let ref3_err = abs(V(x1.ref3) - 2.62)
+echo "Deviation from 2.62V:"
+print ref3_err
+if ref3_err < 0.05
+  echo ">>> PASS: ref3 operating point within 50mV of 2.62V"
+else
+  echo ">>> FAIL: ref3 operating point > 50mV from 2.62V"
+end
+
+* =====================================================================
+* Test 5: Output Impedance Spot Check
+* Apply test current at output, verify Z_out still ~100 ohm.
+* PASS if within 10%.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 5: Output Impedance"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+alter I_test DC = 0
+alter @I_test[pulse] = [ 0 1m 1m 1n 1n 2m 4m ]
+tran 1u 4m UIC
+meas TRAN v_before FIND V(vout) AT=0.5m
+meas TRAN v_after  FIND V(vout) AT=2m
+let z_out = (v_after - v_before) / 1m
+echo "Output impedance (expect ~100 ohm):"
+print z_out
+let z_err = abs(z_out - 100) / 100
+echo "Relative error vs 100 ohm:"
+print z_err
+if z_err < 0.1
+  echo ">>> PASS: Z_out within 10% of 100 ohm"
+else
+  echo ">>> FAIL: Z_out deviation > 10%"
+end
+
+echo ""
+echo "============================================"
+echo "Ref3 sharing validation complete."
+echo "============================================"
+
+.endc
+.end

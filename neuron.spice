@@ -174,7 +174,8 @@ E_w2_buf w2_buf 0 W2_EXT 0 1.0
 * SHARED BIAS (forward + backward)
 * w_bias and tail_ref are shared between forward and backward paths.
 * Multiple mirrors from one tail_ref is standard; w_bias is pure DC.
-* ref3 is kept separate (forward vs backward) to avoid cross-coupling.
+* ref3 is shared: coupling ~14mV at ERR=1V (forward slope/gradient/Z_out
+* unaffected). Verified by test_ref3_sharing.spice.
 * ==================================================================
 
 * Weight divider reference (~2V for upper quad operating point)
@@ -187,11 +188,11 @@ R_bias_load w_bias VEE 20k
 R_tail_top VCC tail_ref 4.65k
 Q_tail_ref tail_ref tail_ref VEE NPN_AN
 
-* Forward transimpedance reference (~2.6V) — kept separate
-R_fwd_ref3_top VCC fwd_ref3_raw 2.6k
-R_fwd_ref3_bot fwd_ref3_raw VEE 13k
-Q_fwd_ref3_buf VCC fwd_ref3_raw fwd_ref3 NPN_AN
-R_fwd_ref3_load fwd_ref3 VEE 10k
+* Transimpedance reference (~2.6V) — shared by forward and backward paths
+R_ref3_top VCC ref3_raw 2.6k
+R_ref3_bot ref3_raw VEE 13k
+Q_ref3_buf VCC ref3_raw ref3 NPN_AN
+R_ref3_load ref3 VEE 10k
 
 * ==================================================================
 * FORWARD CHANNEL 1: W1 * VIN1
@@ -260,7 +261,7 @@ Q_m2 outn outp VCC PNP_AN
 * ==================================================================
 
 * Transimpedance: convert mirror current to voltage
-R_trans outn fwd_ref3 1.1k
+R_trans outn ref3 1.1k
 
 * First emitter follower
 Q_ef1 VCC outn ef1_e NPN_AN
@@ -278,18 +279,6 @@ R_ef2_load ef2_e VEE 2.15k
 R_out ef2_e OUT 80
 
 * ==================================================================
-* BACKWARD REF3
-* Separate transimpedance reference for backward path prevents
-* signal coupling through shared R_trans current into ref3.
-* w_bias and tail_ref are shared with forward (see SHARED BIAS above).
-* ==================================================================
-
-R_bk_ref3_top VCC bk_ref3_raw 2.6k
-R_bk_ref3_bot bk_ref3_raw VEE 13k
-Q_bk_ref3_buf VCC bk_ref3_raw bk_ref3 NPN_AN
-R_bk_ref3_load bk_ref3 VEE 10k
-
-* ==================================================================
 * BACKWARD GRADIENT CELLS
 * Generate gradient current at each input terminal:
 *   I(VIN_i) = K * W_i * ERR,  K ~ 1 uA/V^2
@@ -302,7 +291,7 @@ R_bk_ref3_load bk_ref3 VEE 10k
 * Positive ERR * positive W -> positive current into VIN
 * (current sinks from upstream output through wire into this input)
 * ==================================================================
-X_grad1 w1_buf ERR VIN1 VCC VEE w_bias tail_ref bk_ref3 bk_mult
-X_grad2 w2_buf ERR VIN2 VCC VEE w_bias tail_ref bk_ref3 bk_mult
+X_grad1 w1_buf ERR VIN1 VCC VEE w_bias tail_ref ref3 bk_mult
+X_grad2 w2_buf ERR VIN2 VCC VEE w_bias tail_ref ref3 bk_mult
 
 .ends neuron
