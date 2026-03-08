@@ -19,7 +19,7 @@
 *   into this neuron's input terminal.
 *   Positive ERR + positive W -> positive current into VIN (negative feedback).
 *
-* VCC=+5V, VEE=-5V, signal range: +/-1V, Z_out ~ 100 ohm
+* VCC=+5V, VEE=-5V, signal range: +/-1V, Z_out ~ 300 ohm
 
 .include models.spice
 
@@ -255,28 +255,27 @@ Q_m2 outn outp VCC PNP_AN
 
 * ==================================================================
 * FORWARD OUTPUT STAGE
-* Low-impedance voltage output: R_trans -> EF1 -> level shift ->
-* current source -> EF2 -> R_out(80 ohm).
-* Z_out ~ 100 ohm. Voltage stable under gradient current load.
+* Low-impedance voltage output: R_trans -> EF -> resistive divider
+* level shift -> R_out.
+* Z_out ~ 300 ohm. Voltage stable under gradient current load.
 * ==================================================================
 
 * Transimpedance: convert mirror current to voltage
-R_trans outn ref3 1.1k
+* (increased from 1.1k to compensate for divider attenuation)
+R_trans outn ref3 1.55k
 
-* First emitter follower
+* Emitter follower
 Q_ef1 VCC outn ef1_e NPN_AN
-R_level ef1_e level_node 1.1k
 
-* Current source for level shifting
-R_cs_ref VCC cs_ref_c 9.3k
-Q_cs_ref cs_ref_c cs_ref_c VEE NPN_AN
-Q_cs cs_col cs_ref_c VEE NPN_AN
-R_cs_dummy level_node cs_col 1
+* Resistive divider level shift: sets out_mid ~ 0V when inputs are zero
+* ef1_e ~ ref3 - Vbe ~ 2.63 - 0.7 = 1.93V at quiescent
+* out_mid = VEE + (ef1_e - VEE) * R_bot/(R_top + R_bot)
+* For out_mid = 0: R_bot/(R_top+R_bot) = 5/6.93 = 0.722
+R_top ef1_e out_mid 370
+R_bot out_mid VEE 1k
 
-* Second emitter follower + output resistor
-Q_ef2 VCC level_node ef2_e NPN_AN
-R_ef2_load ef2_e VEE 2.15k
-R_out ef2_e OUT 80
+* Output resistor
+R_out out_mid OUT 30
 
 * ==================================================================
 * BACKWARD GRADIENT CELLS

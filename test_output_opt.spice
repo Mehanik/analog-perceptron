@@ -1,0 +1,202 @@
+* Output Stage Optimization Tests
+* Verifies simplified single-EF + resistive divider output stage
+* Tests: DC operating point, forward slope, Z_out, linearity, gradient, transient
+
+.include testbench.spice
+
+.control
+
+set noaskquit
+
+* =====================================================================
+* Test 1: DC Operating Point — V(OUT) ~ 0V when VIN1=VIN2=0
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 1: DC Operating Point (VIN1=VIN2=0)"
+echo "============================================"
+alter Vin1 DC = 0
+alter Vin2 DC = 0
+alter Verr DC = 0
+op
+let vout_dc = V(vout)
+echo "V(OUT) at zero inputs (target: 0V, tolerance: +/-50mV):"
+print vout_dc
+
+let test1 = vecmax(vout_dc) - vecmin(vout_dc)
+if vout_dc < 0.05
+  if vout_dc > -0.05
+    echo "Test 1: PASS"
+  else
+    echo "Test 1: FAIL (too negative)"
+  end
+else
+  echo "Test 1: FAIL (too positive)"
+end
+
+* =====================================================================
+* Test 2: Forward Slope — DC sweep VIN1, measure slope near 0
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 2: Forward Slope"
+echo "============================================"
+alter Vin2 DC = 0
+dc Vin1 -1 1 0.02
+meas DC vout_p02 FIND V(vout) AT=0.02
+meas DC vout_n02 FIND V(vout) AT=-0.02
+let slope = (vout_p02 - vout_n02) / 0.04
+echo "Small-signal slope near VIN1=0 (target: ~0.617, tolerance: 5%):"
+print slope
+
+let slope_dev = slope - 0.617
+if slope_dev < 0
+  let slope_dev = -slope_dev
+end
+let slope_err = slope_dev / 0.617
+echo "Slope error:"
+print slope_err
+if slope_err < 0.05
+  echo "Test 2: PASS"
+else
+  echo "Test 2: FAIL"
+end
+
+* =====================================================================
+* Test 3: Output Impedance — step current, measure Z_out
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 3: Output Impedance"
+echo "============================================"
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+alter I_test DC = 0
+alter @I_test[pulse] = [ 0 1m 1m 1n 1n 2m 4m ]
+tran 1u 4m UIC
+meas TRAN v_before FIND V(vout) AT=0.5m
+meas TRAN v_after  FIND V(vout) AT=2m
+let z_out = (v_after - v_before) / 1m
+echo "Output impedance (target: < 400 ohm):"
+print z_out
+
+if z_out < 400
+  echo "Test 3: PASS"
+else
+  echo "Test 3: FAIL"
+end
+
+alter I_test DC = 0
+alter @I_test[pulse] = [ 0 0 0 0 0 0 0 ]
+
+* =====================================================================
+* Test 4: Linearity — compare slope at VIN1=-0.5 and VIN1=+0.5
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 4: Linearity"
+echo "============================================"
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+dc Vin1 -1 1 0.02
+meas DC vout_p048 FIND V(vout) AT=0.48
+meas DC vout_p052 FIND V(vout) AT=0.52
+meas DC vout_n048 FIND V(vout) AT=-0.48
+meas DC vout_n052 FIND V(vout) AT=-0.52
+let slope_pos = (vout_p052 - vout_p048) / 0.04
+let slope_neg = (vout_n048 - vout_n052) / 0.04
+echo "Slope at VIN1=+0.5:"
+print slope_pos
+echo "Slope at VIN1=-0.5:"
+print slope_neg
+let avg_slope = (slope_pos + slope_neg) / 2
+let lin_dev = slope_pos - slope_neg
+if lin_dev < 0
+  let lin_dev = -lin_dev
+end
+let linearity_err = lin_dev / avg_slope
+echo "Linearity error (target: < 10%):"
+print linearity_err
+
+if linearity_err < 0.10
+  echo "Test 4: PASS"
+else
+  echo "Test 4: FAIL"
+end
+
+* =====================================================================
+* Test 5: Gradient Still Works — ERR sweep, check gradient current
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 5: Gradient Current"
+echo "============================================"
+alter Vin1 DC = 0
+alter Vin2 DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+
+dc Verr -1.1 1.1 0.1
+meas DC ivin1_at0 FIND I(Vin1) AT=0
+meas DC ivin1_at1 FIND I(Vin1) AT=1
+meas DC ivin1_atn1 FIND I(Vin1) AT=-1
+
+let grad1_pos = ivin1_at1 - ivin1_at0
+let grad1_neg = ivin1_atn1 - ivin1_at0
+echo "Gradient current at ERR=+1 (expect ~6.4e-7):"
+print grad1_pos
+echo "Gradient current at ERR=-1 (expect ~-6.4e-7):"
+print grad1_neg
+
+if grad1_pos > 4e-7
+  if grad1_pos < 9e-7
+    echo "Test 5: PASS"
+  else
+    echo "Test 5: FAIL (too large)"
+  end
+else
+  echo "Test 5: FAIL (too small)"
+end
+
+* =====================================================================
+* Test 6: Transient — sine test, verify output tracks input
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 6: Transient Sine Test"
+echo "============================================"
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0.8 1k 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+tran 1u 3m UIC
+meas TRAN vout_pk MAX V(vout)
+meas TRAN vout_min MIN V(vout)
+echo "Output peak (expect ~0.5V):"
+print vout_pk
+echo "Output min (expect ~-0.5V):"
+print vout_min
+
+if vout_pk > 0.3
+  if vout_min < -0.3
+    echo "Test 6: PASS"
+  else
+    echo "Test 6: FAIL (min not negative enough)"
+  end
+else
+  echo "Test 6: FAIL (peak not large enough)"
+end
+
+echo ""
+echo "============================================"
+echo "All output optimization tests complete."
+echo "============================================"
+
+.endc
+.end
