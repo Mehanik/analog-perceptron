@@ -36,8 +36,8 @@ echo "============================================"
 echo "bk_mult Operating Point (GAIN=0.5, SIGNAL=0)"
 echo "============================================"
 op
-echo "bk_out (should be ~0V):"
-print V(x1.bk_out)
+echo "outn_bk (mirror output, drives R_inject):"
+print V(x1.outn_bk)
 echo "I(Vtarget) at quiescent:"
 print I(Vtarget)
 

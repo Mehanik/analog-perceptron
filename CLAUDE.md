@@ -18,6 +18,7 @@ Analog neural network implemented as an ngspice circuit. A single neuron compute
 - `test_integration.spice` — Tests 8-10 (isolation, coexistence, multi-config)
 - `neuron_tests.spice` — All 10 tests in one file (gradient tests less accurate due to VIN loading from weight update cells)
 - `test_bk_mult.spice` — Standalone bk_mult characterization
+- `test_bk_opt.spice` — Validates bk_mult/bk_mult_ac optimization (EF+divider removal)
 - `gilbert_test.spice` — Standalone forward Gilbert cell test
 - `bk_test.spice` — Legacy backward cell test (uses old bk_gilbert subcircuit)
 
@@ -61,13 +62,14 @@ ngspice -b neuron_tests.spice
 Two types of backward multiplier subcircuits:
 
 - **`bk_mult`** (DC-compatible): for gradient cells where TARGET is a voltage source
-  - NPN Gilbert cell + PNP mirror + R_trans + EF + split-load level shift + R_inject(700k)
-  - Level shift brings output to ~0V DC; offset absorbed by voltage source
+  - NPN Gilbert cell + PNP mirror + R_trans(1.1k) + R_inject(960k)
+  - Mirror output drives R_inject directly (960k negligible load vs R_trans)
+  - DC offset at outn_bk absorbed by voltage source at INJECT
   - Gradient cells inside neuron use separate bias (prevents forward coupling)
 
 - **`bk_mult_ac`** (transient-only): for weight update cells where TARGET is a capacitor
-  - Same as bk_mult but with 1uF coupling cap before R_inject
-  - Blocks DC offset that would drift weight caps
+  - Same as bk_mult but with 1uF coupling cap before R_inject(960k)
+  - Coupling cap blocks DC offset that would drift weight caps
   - Requires `.ic V(x.bk_ac)=V_target_init` to pre-charge coupling cap
 
 ### Weight Storage

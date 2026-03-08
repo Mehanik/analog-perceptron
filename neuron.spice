@@ -27,9 +27,10 @@
 * BACKWARD MULTIPLIER — DC-coupled
 *
 * Gilbert cell analog multiplier: I_out = K * GAIN * SIGNAL
-* Output current injected into INJECT node through 700k resistor.
-* DC-compatible: level shift brings output to ~0V; the voltage source
-* at INJECT absorbs any residual DC offset.
+* Output current injected into INJECT node through 960k resistor.
+* DC-compatible: the voltage source at INJECT absorbs any DC offset.
+* Mirror output (outn_bk) drives R_inject directly (no buffering needed
+* since 960k is negligible load vs R_trans 1.1k).
 *
 * Used inside neuron as gradient cell:
 *   GAIN=weight, SIGNAL=error, INJECT=VIN terminal
@@ -79,14 +80,10 @@ Q_m2_bk outn_bk outp_bk VCC PNP_AN
 * Transimpedance: convert mirror output current to voltage
 R_trans_bk outn_bk REF3 1.1k
 
-* Emitter follower + resistive divider level shift to ~0V DC
-Q_ef_bk VCC outn_bk ef_bk NPN_AN
-R_ef_upper ef_bk bk_out 590
-R_ef_lower bk_out VEE 1560
-
 * Output: inject current into INJECT node
-* I_inject = V(bk_out) / 700k ~ K * GAIN * SIGNAL
-R_inject bk_out INJECT 700k
+* I_inject = V(outn_bk) / 960k ~ K * GAIN * SIGNAL
+* (960k = 700k / 0.725 to compensate for removed EF+divider gain)
+R_inject outn_bk INJECT 960k
 
 .ends bk_mult
 
@@ -96,6 +93,7 @@ R_inject bk_out INJECT 700k
 * Same as bk_mult but with 1uF coupling cap before R_inject.
 * Blocks DC offset that would drift weight capacitors.
 * For use when INJECT is a weight capacitor node.
+* Mirror output drives coupling cap directly (no EF buffer needed).
 *
 * Requires .ic V(x.bk_ac)=V_target_init to pre-charge coupling cap.
 ***********************************************************************
@@ -132,16 +130,12 @@ Q_m2_bk outn_bk outp_bk VCC PNP_AN
 * Transimpedance
 R_trans_bk outn_bk REF3 1.1k
 
-* Emitter follower + level shift
-Q_ef_bk VCC outn_bk ef_bk NPN_AN
-R_ef_upper ef_bk bk_out 590
-R_ef_lower bk_out VEE 1560
-
 * AC coupling + output injection
-* C_couple blocks DC offset; passes signal (tau = 0.7s >> pulse width)
+* C_couple blocks DC offset; passes signal (tau = 0.96s >> pulse width)
 * Pre-charge with .ic V(bk_ac) = V(INJECT_init)
-C_couple bk_out bk_ac 1u
-R_inject bk_ac INJECT 700k
+* (960k = 700k / 0.725 to compensate for removed EF+divider gain)
+C_couple outn_bk bk_ac 1u
+R_inject bk_ac INJECT 960k
 
 .ends bk_mult_ac
 

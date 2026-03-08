@@ -1,0 +1,402 @@
+* Backward Multiplier Optimization Validation Tests
+* Verifies that removing EF+divider from bk_mult/bk_mult_ac output stage
+* preserves gradient current magnitude, linearity, and weight update behavior.
+
+.include neuron.spice
+
+***********************************************************************
+* POWER SUPPLIES
+***********************************************************************
+VCC vcc 0 DC 5
+VEE vee 0 DC -5
+
+***********************************************************************
+* BIAS INFRASTRUCTURE (shared by all standalone test cells)
+***********************************************************************
+R_bias_top vcc bias_raw 4.7k
+R_bias_bot bias_raw vee 15k
+Q_bias_buf vcc bias_raw w_bias NPN_AN
+R_bias_load w_bias vee 20k
+
+R_tail_top vcc tail_ref_c 4.65k
+Q_tail_ref tail_ref_c tail_ref_c vee NPN_AN
+
+R_ref3_top vcc ref3_raw 2.6k
+R_ref3_bot ref3_raw vee 13k
+Q_ref3_buf vcc ref3_raw ref3 NPN_AN
+R_ref3_load ref3 vee 10k
+
+***********************************************************************
+* STANDALONE bk_mult CELLS for gradient current tests
+* All share V_sig as SIGNAL input (swept together)
+***********************************************************************
+
+V_sig sig_node 0 DC 0
+
+* Cell A: GAIN=0.5
+V_gain_a gain_a 0 DC 0.5
+V_inj_a inj_a 0 DC 0
+X_a gain_a sig_node inj_a vcc vee w_bias tail_ref_c ref3 bk_mult
+
+* Cell B: GAIN=0.3
+V_gain_b gain_b 0 DC 0.3
+V_inj_b inj_b 0 DC 0
+X_b gain_b sig_node inj_b vcc vee w_bias tail_ref_c ref3 bk_mult
+
+* Cell C: GAIN=0.7
+V_gain_c gain_c 0 DC 0.7
+V_inj_c inj_c 0 DC 0
+X_c gain_c sig_node inj_c vcc vee w_bias tail_ref_c ref3 bk_mult
+
+***********************************************************************
+* FULL NEURON INSTANCE for gradient and forward tests
+***********************************************************************
+Vw1_prog w1_prog 0 DC 0.7
+Rw1_prog w1_prog w1_node 10MEG
+Vw2_prog w2_prog 0 DC -0.4
+Rw2_prog w2_prog w2_node 10MEG
+
+X_neuron vin1 vin2 vout vcc vee w1_node w2_node err_in neuron
+.ic V(w1_node)=0.7 V(w2_node)=-0.4
+
+Vin1 vin1 0 DC 0
+Vin2 vin2 0 DC 0
+Verr err_in 0 DC 0
+
+***********************************************************************
+* STANDALONE bk_mult_ac CELL for weight update test
+***********************************************************************
+V_gain_ac gain_ac 0 DC 0.5
+C_wt wt_node 0 100n
+R_wt_bleed wt_node 0 100MEG
+.ic V(wt_node)=0.5 V(x_ac.bk_ac)=0.5
+
+X_ac gain_ac err_ac wt_node vcc vee w_bias tail_ref_c ref3 bk_mult_ac
+Verr_ac err_ac 0 DC 0
+
+***********************************************************************
+* CONTROL BLOCK
+***********************************************************************
+.control
+
+set noaskquit
+
+echo ""
+echo "============================================================"
+echo "Backward Multiplier Optimization Validation"
+echo "============================================================"
+
+* =====================================================================
+* Test 1: Standalone bk_mult gradient current at multiple weights
+* All cells share V_sig, swept from -1.1 to 1.1.
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 1: Standalone bk_mult gradient current"
+echo "============================================"
+
+* Use +/-0.5V to stay well within linear region (Re=1k, I_tail=2mA)
+dc V_sig -0.6 0.6 0.1
+
+meas DC ia_at0 FIND I(V_inj_a) AT=0
+meas DC ia_pos FIND I(V_inj_a) AT=0.5
+meas DC ia_neg FIND I(V_inj_a) AT=-0.5
+
+meas DC ib_at0 FIND I(V_inj_b) AT=0
+meas DC ib_pos FIND I(V_inj_b) AT=0.5
+meas DC ib_neg FIND I(V_inj_b) AT=-0.5
+
+meas DC ic_at0 FIND I(V_inj_c) AT=0
+meas DC ic_pos FIND I(V_inj_c) AT=0.5
+meas DC ic_neg FIND I(V_inj_c) AT=-0.5
+
+* Gradient slope = (I(+0.5) - I(-0.5)) / 1.0
+let slope_a = (ia_pos - ia_neg)
+let slope_b = (ib_pos - ib_neg)
+let slope_c = (ic_pos - ic_neg)
+
+echo ""
+echo "--- Gradient slopes dI/dSIGNAL ---"
+echo "Cell A (GAIN=0.5):"
+print slope_a
+echo "Cell B (GAIN=0.3):"
+print slope_b
+echo "Cell C (GAIN=0.7):"
+print slope_c
+
+* Linearity: slope ratios should match weight ratios
+let ratio_ca = slope_c / slope_a
+let ratio_ba = slope_b / slope_a
+
+echo ""
+echo "--- Linearity: slope ratios vs weight ratios ---"
+echo "slope_c/slope_a (expect 1.40 = 0.7/0.5):"
+print ratio_ca
+echo "slope_b/slope_a (expect 0.60 = 0.3/0.5):"
+print ratio_ba
+
+let err_ca = abs(ratio_ca - 1.4)
+let err_ba = abs(ratio_ba - 0.6)
+
+echo ""
+echo "Absolute error in ratio_ca (threshold 0.20):"
+print err_ca
+echo "Absolute error in ratio_ba (threshold 0.10):"
+print err_ba
+
+if err_ca < 0.20
+  echo "PASS: ratio_ca within tolerance"
+else
+  echo "FAIL: ratio_ca outside tolerance"
+end
+if err_ba < 0.10
+  echo "PASS: ratio_ba within tolerance"
+else
+  echo "FAIL: ratio_ba outside tolerance"
+end
+
+* Symmetry: |grad_pos + grad_neg| / |grad_pos|
+let grad_a_pos = ia_pos - ia_at0
+let grad_a_neg = ia_neg - ia_at0
+let sym_a = abs(grad_a_pos + grad_a_neg) / abs(grad_a_pos)
+
+echo ""
+echo "--- Symmetry (Cell A): |sum| / |pos| (expect < 0.15) ---"
+print sym_a
+if sym_a < 0.15
+  echo "PASS: Cell A symmetry OK"
+else
+  echo "FAIL: Cell A symmetry > 15%"
+end
+
+* =====================================================================
+* Test 2: Full neuron gradient currents
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 2: Full neuron gradient currents"
+echo "============================================"
+
+dc Verr -1.1 1.1 0.1
+meas DC ivin1_at0 FIND I(Vin1) AT=0
+meas DC ivin1_at1 FIND I(Vin1) AT=1
+meas DC ivin1_atn1 FIND I(Vin1) AT=-1
+meas DC ivin2_at0 FIND I(Vin2) AT=0
+meas DC ivin2_at1 FIND I(Vin2) AT=1
+meas DC ivin2_atn1 FIND I(Vin2) AT=-1
+
+let grad_slope1 = (ivin1_at1 - ivin1_atn1) / 2
+let grad_slope2 = (ivin2_at1 - ivin2_atn1) / 2
+
+echo ""
+echo "--- Neuron gradient slopes ---"
+echo "dI(Vin1)/dERR (W1=0.7, expect positive ~6e-7):"
+print grad_slope1
+echo "dI(Vin2)/dERR (W2=-0.4, expect negative ~-3.5e-7):"
+print grad_slope2
+
+* Sign checks
+if grad_slope1 > 0
+  echo "PASS: grad1 sign correct (positive W -> positive slope)"
+else
+  echo "FAIL: grad1 sign wrong"
+end
+if grad_slope2 < 0
+  echo "PASS: grad2 sign correct (negative W -> negative slope)"
+else
+  echo "FAIL: grad2 sign wrong"
+end
+
+* Ratio: expect ~ -1.75
+let ratio_neuron = grad_slope1 / grad_slope2
+echo ""
+echo "--- Gradient ratio (expect ~ -1.75) ---"
+print ratio_neuron
+
+let err_ratio = abs(ratio_neuron + 1.75)
+if err_ratio < 0.30
+  echo "PASS: neuron gradient ratio within tolerance"
+else
+  echo "FAIL: neuron gradient ratio outside tolerance"
+end
+
+* Magnitude checks
+let abs_g1 = abs(grad_slope1)
+let abs_g2 = abs(grad_slope2)
+echo "--- Gradient magnitudes ---"
+print abs_g1 abs_g2
+
+if abs_g1 > 3e-7
+  if abs_g1 < 1.2e-6
+    echo "PASS: grad1 magnitude in range [3e-7, 1.2e-6]"
+  else
+    echo "FAIL: grad1 magnitude too large"
+  end
+else
+  echo "FAIL: grad1 magnitude too small"
+end
+
+if abs_g2 > 1.5e-7
+  if abs_g2 < 7e-7
+    echo "PASS: grad2 magnitude in range [1.5e-7, 7e-7]"
+  else
+    echo "FAIL: grad2 magnitude too large"
+  end
+else
+  echo "FAIL: grad2 magnitude too small"
+end
+
+* =====================================================================
+* Test 3: Forward path integrity
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 3: Forward path integrity"
+echo "============================================"
+
+alter Vin1 DC = 0
+alter @Vin1[sin] = [ 0 0 0 0 0 0 ]
+alter Vin2 DC = 0
+alter @Vin2[sin] = [ 0 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+
+dc Vin1 -1.1 1.1 0.1
+meas DC vout_at0 FIND V(vout) AT=0
+meas DC vout_at1 FIND V(vout) AT=1
+meas DC vout_atn1 FIND V(vout) AT=-1
+
+let fwd_slope = (vout_at1 - vout_atn1) / 2
+echo ""
+echo "--- Forward slope dVout/dVin1 (expect ~0.617) ---"
+print fwd_slope
+
+let fwd_err = abs(fwd_slope - 0.617)
+if fwd_err < 0.05
+  echo "PASS: forward slope within tolerance"
+else
+  echo "FAIL: forward slope outside tolerance"
+end
+
+* =====================================================================
+* Test 4: Forward/error isolation
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 4: Forward/error isolation"
+echo "============================================"
+
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = 0.3
+alter @Vin2[sin] = [ 0.3 0 0 0 0 0 ]
+
+dc Verr -1.1 1.1 0.1
+meas DC vout_err0 FIND V(vout) AT=0
+meas DC vout_err1 FIND V(vout) AT=1
+meas DC vout_errn1 FIND V(vout) AT=-1
+
+let err_coupling = abs(vout_err1 - vout_errn1) / 2
+echo ""
+echo "--- Error-to-output coupling (expect < 1 mV) ---"
+print err_coupling
+
+if err_coupling < 1e-3
+  echo "PASS: error/forward isolation < 1 mV"
+else
+  echo "FAIL: error/forward isolation >= 1 mV"
+end
+
+* =====================================================================
+* Test 5: bk_mult_ac weight update (transient)
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 5: bk_mult_ac weight update"
+echo "============================================"
+
+* Reset inputs for transient
+alter Vin1 DC = 0.5
+alter @Vin1[sin] = [ 0.5 0 0 0 0 0 ]
+alter Vin2 DC = -0.3
+alter @Vin2[sin] = [ -0.3 0 0 0 0 0 ]
+alter Verr DC = 0
+alter @Verr[pulse] = [ 0 0 0 0 0 0 0 ]
+
+* Pulse the standalone AC cell's error input
+alter Verr_ac DC = 0
+alter @Verr_ac[pulse] = [ 0 0.5 10m 100u 100u 50m 200m ]
+
+tran 100u 150m UIC
+
+meas TRAN wt_pre FIND V(wt_node) AT=9m
+meas TRAN wt_mid FIND V(wt_node) AT=40m
+meas TRAN wt_end FIND V(wt_node) AT=61m
+
+let dwt_pulse = wt_end - wt_pre
+
+echo ""
+echo "--- Standalone bk_mult_ac weight update ---"
+echo "Weight before pulse:"
+print wt_pre
+echo "Weight mid-pulse:"
+print wt_mid
+echo "Weight at pulse end:"
+print wt_end
+echo "Weight change during pulse:"
+print dwt_pulse
+
+* Weight should change with positive sign (pos GAIN * pos ERR)
+if dwt_pulse > 0
+  echo "PASS: weight update direction correct (positive)"
+else
+  echo "FAIL: weight update direction wrong"
+end
+
+let abs_dwt = abs(dwt_pulse)
+if abs_dwt > 1e-6
+  echo "PASS: weight update magnitude detectable"
+else
+  echo "FAIL: weight update too small"
+end
+
+* =====================================================================
+* Test 6: DC operating point sanity check
+* =====================================================================
+echo ""
+echo "============================================"
+echo "Test 6: DC operating point check"
+echo "============================================"
+
+alter @Verr_ac[pulse] = [ 0 0 0 0 0 0 0 ]
+
+op
+
+echo ""
+echo "--- bk_mult DC operating points ---"
+echo "Cell A outn_bk voltage:"
+print V(x_a.outn_bk)
+echo "REF3 voltage:"
+print V(ref3)
+
+let i_trans_a = (V(x_a.outn_bk) - V(ref3)) / 1100
+echo "R_trans current (outn_bk to REF3):"
+print i_trans_a
+
+let i_dc_inject_a = (V(x_a.outn_bk) - V(inj_a)) / 960000
+echo "DC current through R_inject:"
+print i_dc_inject_a
+
+echo ""
+echo "Note: DC inject current is absorbed by the VIN voltage source."
+echo "In bk_mult_ac, coupling cap blocks this DC entirely."
+echo "The gradient signal rides on top of this baseline and is"
+echo "correctly extracted by subtracting I(ERR=0)."
+
+echo ""
+echo "============================================"
+echo "ALL TESTS COMPLETE"
+echo "============================================"
+
+.endc
+.end
