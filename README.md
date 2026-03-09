@@ -2,19 +2,9 @@
 
 A single neuron implemented entirely in transistor-level analog circuitry, simulated in [ngspice](https://ngspice.sourceforge.io/). The neuron computes a weighted sum of two inputs using Gilbert cell analog multipliers, stores weights on capacitors, and performs gradient descent learning through a transistor-level backward path.
 
-## The Idea
-
-Digital neural networks multiply, add, and differentiate using floating-point arithmetic. This project does the same thing with currents and voltages — no ADCs, no DACs, no digital logic. A single neuron computes:
-
-```
-V_out = W1 × VIN1 + W2 × VIN2
-```
-
-Each multiplication is a Gilbert cell (a cross-coupled BJT differential amplifier pair). Weights are voltages stored on capacitors. The backward path — computing how much each weight should change — uses additional Gilbert cells that multiply the error signal by the input, producing a gradient current that charges or discharges the weight capacitors.
-
-The entire forward and backward path is built from ~40 BJTs, resistors, and capacitors. No op-amps, no digital control.
-
 ## Neuron Interface
+
+**Subcircuit `neuron`** — ports: `VIN1 VIN2 OUT VCC VEE W1_EXT W2_EXT`
 
 ```
          W1_EXT  W2_EXT
@@ -27,14 +17,30 @@ The entire forward and backward path is built from ~40 BJTs, resistors, and capa
                |
 ```
 
-**Subcircuit `neuron`** — ports: `VIN1 VIN2 OUT VCC VEE W1_EXT W2_EXT`
+Signals are carried as **voltages** through the forward path and as **currents** through the backward path:
 
-| Port | Direction | Function |
-|------|-----------|----------|
-| VIN1, VIN2 | Voltage in, gradient current out | Input terminals. Accept ±1V signals. Also source/sink gradient current for upstream weight updates. |
-| OUT | Voltage out, error current in | Low-impedance output (~277 Ω). Error from downstream enters as current here. |
-| W1_EXT, W2_EXT | Bidirectional | External access to 100 nF weight capacitors for programming and monitoring. |
-| VCC, VEE | Power | +5V and −5V rails. |
+| Port | Signal | Function |
+|------|--------|----------|
+| VIN1, VIN2 | Voltage in (±1 V), gradient current out | Input terminals. Forward: accepts input voltages. Backward: sources/sinks gradient current for upstream weight updates. |
+| OUT | Voltage out, error current in | Forward: drives `V_out = W1 × VIN1 + W2 × VIN2` at low impedance (~277 Ω). Backward: receives error as current from downstream. |
+| W1_EXT, W2_EXT | Voltage | External access to 100 nF weight storage capacitors. |
+| VCC, VEE | Power | +5 V and −5 V rails. |
+
+### Signal Convention
+
+The forward result is a **voltage** at OUT. Error and gradient signals flow as **currents**, enabling neurons to chain without explicit error buses — a downstream neuron's gradient current naturally loads the upstream neuron's output:
+
+- **Error current at OUT**: downstream gradient cells sink/source current into this terminal. 1 μA of error current produces 1 V of internal error signal (via 1 MΩ CCVS transimpedance).
+- **Gradient current at VIN**: `I = K × W_i × err` (K ≈ 1 μA/V²). Positive gradient = current sinking from upstream output into VIN.
+- **Weight update rule**: positive input × positive error → weight increases — a stable negative feedback loop.
+
+## How It Works
+
+Digital neural networks multiply, add, and differentiate using floating-point arithmetic. This project does the same thing with currents and voltages — no ADCs, no DACs, no digital logic.
+
+Each multiplication is a **Gilbert cell** (a cross-coupled BJT differential amplifier pair). Weights are voltages stored on capacitors. The backward path — computing how much each weight should change — uses additional Gilbert cells that multiply the error signal by the input, producing a gradient current that charges or discharges the weight capacitors.
+
+The entire forward and backward path is built from ~40 BJTs, resistors, and capacitors. No op-amps, no digital control.
 
 ### Forward Path
 
@@ -42,17 +48,7 @@ Two NPN Gilbert cells (one per input channel) share a PNP current mirror load. E
 
 ### Backward Path
 
-Error enters as current at the OUT terminal. A zero-volt sense source (`V_isense`) and CCVS (`H_err`, 1 MΩ transimpedance) convert the error current to an internal voltage: 1 μA of error current produces 1 V of internal error signal. This error voltage drives per-channel gradient cells — each a `bk_mult` Gilbert cell that multiplies the weight by the error, producing a gradient current at the input terminal:
-
-```
-I_gradient(VIN_i) ≈ K × W_i × err_v       (K ≈ 1 μA/V²)
-```
-
-### Sign Convention
-
-- **Gradient current**: positive = current sinking from upstream output into VIN.
-- **Error current**: positive = current flowing into OUT from the external circuit.
-- **Weight update**: positive input × positive error → weight increases. This forms a stable negative feedback loop.
+Error enters as current at the OUT terminal. A zero-volt sense source and CCVS (1 MΩ transimpedance) convert the error current to an internal voltage that drives per-channel gradient cells — each a `bk_mult` Gilbert cell that multiplies the weight by the error, producing gradient current at the input terminal.
 
 ## Learning Demonstration
 
