@@ -8,7 +8,7 @@
 * Phase 4 (3–4s):    Slowly ramp VIN2 from -0.5 to +0.5
 * Phase 5 (4–5s):    Hold — observe final output
 *
-* Initial weights: W1=0.3, W2=0.3 (symmetric, initial output ~ 0V)
+* Initial weights: W1=-0.1, W2=+0.1 (asymmetric, initial output ~ 0V)
 * Target: 0.5V at OUT
 *
 * Weight update uses ideal behavioral sources implementing the gradient
@@ -28,9 +28,9 @@ VEE vee 0 DC -5
 ***********************************************************************
 * WEIGHT PROGRAMMING (1G resistors — negligible restoring force)
 ***********************************************************************
-Vw1_prog w1_prog 0 DC 0.3
+Vw1_prog w1_prog 0 DC -0.1
 Rw1_prog w1_prog w1_node 1G
-Vw2_prog w2_prog 0 DC 0.3
+Vw2_prog w2_prog 0 DC 0.1
 Rw2_prog w2_prog w2_node 1G
 
 ***********************************************************************
@@ -39,7 +39,7 @@ Rw2_prog w2_prog w2_node 1G
 X1 vin1 vin2 vout vcc vee w1_node w2_node neuron
 
 * Initial weight cap voltages
-.ic V(w1_node)=0.3 V(w2_node)=0.3
+.ic V(w1_node)=-0.1 V(w2_node)=0.1
 
 ***********************************************************************
 * INPUT SOURCES (PWL for phase transitions)
