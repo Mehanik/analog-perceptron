@@ -71,16 +71,18 @@ plt.savefig('learning_test.png', dpi=150, bbox_inches='tight')
 print("Saved learning_test.png")
 plt.close()
 
-# Also compute and print error current through 100k
-# I_target = (0.5 - Vout) / 100k when connected (t < 1s)
-mask_connected = t_v < 1.0
-i_target = np.where(t_v < 1.0, (0.5 - vout) / 100e3, 0)
+# Error current through 100k: I = sw * (0.5 - Vout) / 100k
+t_sw, (sw,) = load_wrdata('learning_sw.txt')
+# Interpolate sw onto vout time base
+sw_interp = np.interp(t_v, t_sw, sw)
+i_target = sw_interp * (0.5 - vout) / 100e3
 
 fig2, ax2 = plt.subplots(figsize=(12, 4))
-ax2.plot(t_v[mask_connected], i_target[mask_connected] * 1e6, 'g-', linewidth=1.5)
+shade_phases(ax2)
+ax2.plot(t_v, i_target * 1e6, 'g-', linewidth=1.5)
 ax2.set_ylabel('Current (μA)')
 ax2.set_xlabel('Time (s)')
-ax2.set_title('Error Current through 100k Resistor (Phase 1 only)')
+ax2.set_title('Error Current through 100k Resistor')
 ax2.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig('learning_current.png', dpi=150, bbox_inches='tight')

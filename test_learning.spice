@@ -75,6 +75,7 @@ tran 1m 5 UIC
 * Write data for plotting
 wrdata learning_vout.txt V(vout) V(vin1) V(vin2)
 wrdata learning_weights.txt V(w1_node) V(w2_node)
+wrdata learning_sw.txt V(sw)
 
 * Measurements
 echo ""
